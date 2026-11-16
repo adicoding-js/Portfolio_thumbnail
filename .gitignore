@@ -1,0 +1,15 @@
+.env
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+data/
+downloads/
+ring_buffers/
+emote_cache/
+*.mp4
+*.ts
+*.mov
+*.webm
+*.log
+.DS_Store

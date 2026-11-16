@@ -1,0 +1,46 @@
+{
+  "tiers": {
+    "tier_1": {
+      "weight": 3.0,
+      "terms": [
+        "clip it", "clip that", "clipped", "clip",
+        "put me in the vid", "hi youtube", "tiktok", "viral", "post this"
+      ]
+    },
+    "tier_2": {
+      "weight": 2.0,
+      "terms": [
+        "lul", "lulw", "omegalul", "kekw", "icant", "lmao", "lmfao",
+        "aintnoway", "no way", "nowaying", "wtf", "wtff", "huh", "huhh",
+        "bro what", "wait what", "holy", "omg", "oh my god", "noooo",
+        "ayo", "caught", "4k", "sus", "sussy", "diesofcringe", "aware",
+        "💀", "😭", "🤣", "😱", "🤯"
+      ]
+    },
+    "tier_3": {
+      "weight": 1.5,
+      "terms": [
+        "w", "www", "big w", "pog", "pogu", "poggers",
+        "lets go", "letsgooo", "wicked", "insane", "crazy", "goat",
+        "clutch", "lethimcook", "cinema", "peak",
+        "monkaw", "monkas", "monkasteer", "monkatos",
+        "tos", "banned", "rip", "o7", "pressf", "choked", "sold", "wasted",
+        "🔥", "🐐"
+      ]
+    }
+  },
+  "noise": {
+    "command_prefixes": ["!"],
+    "ignored_commands": ["!drops", "!giveaway", "!raffle", "!enter", "!claim", "!sr", "!discord"],
+    "single_token_polls": ["1", "2", "3", "4", "a", "b", "c", "d", "yes", "no", "y", "n"],
+    "system_patterns": [
+      "gifted a tier",
+      "subscribed at tier",
+      "subscribed with prime",
+      "is raiding with a party of",
+      "cheered"
+    ],
+    "copypasta_window_sec": 5.0,
+    "copypasta_similarity_threshold": 0.70
+  }
+}

@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PinkWire LiveClipper — Control Room</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            pinkwire: '#FF3385',
+            surface: '#111116',
+            card: '#181820',
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-[#0a0a0e] text-zinc-100 min-h-screen font-sans antialiased">
+  <header class="border-b border-zinc-800 bg-surface sticky top-0 z-20">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <span class="w-3 h-3 rounded-full bg-pinkwire animate-pulse"></span>
+        <h1 class="text-lg font-bold tracking-tight">
+          PinkWire <span class="text-pinkwire">LiveClipper</span>
+        </h1>
+        <span id="connBadge" class="text-xs px-2 py-0.5 rounded bg-zinc-800 text-zinc-400">Connecting...</span>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2 text-xs">
+        <input id="vpsUrl" type="text" placeholder="http://localhost:8765"
+          class="bg-zinc-900 border border-zinc-700 rounded px-2.5 py-1.5 w-52 text-zinc-200 focus:border-pinkwire outline-none" />
+        <input id="apiSecret" type="password" placeholder="API Secret"
+          class="bg-zinc-900 border border-zinc-700 rounded px-2.5 py-1.5 w-36 text-zinc-200 focus:border-pinkwire outline-none" />
+        <button onclick="connectAll()"
+          class="bg-pinkwire hover:opacity-90 text-white font-semibold px-3 py-1.5 rounded transition">
+          Connect
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 py-5 space-y-6">
+    <section class="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <div class="bg-card border border-zinc-800 rounded-lg p-3">
+        <div class="text-xs text-zinc-400">Active Watchers</div>
+        <div id="statWatchers" class="text-xl font-bold mt-0.5">—</div>
+      </div>
+      <div class="bg-card border border-zinc-800 rounded-lg p-3">
+        <div class="text-xs text-zinc-400">Kick Ring-Buffers</div>
+        <div id="statRing" class="text-xl font-bold mt-0.5">—</div>
+      </div>
+      <div class="bg-card border border-zinc-800 rounded-lg p-3">
+        <div class="text-xs text-zinc-400">VPS Storage Cap</div>
+        <div id="statStorage" class="text-xl font-bold mt-0.5">—</div>
+      </div>
+      <div class="bg-card border border-zinc-800 rounded-lg p-3">
+        <div class="text-xs text-zinc-400">Active Game Profile</div>
+        <select id="activeGameSelect" onchange="changeActiveGame()"
+          class="mt-1 w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-100">
+        </select>
+      </div>
+      <div class="bg-card border border-zinc-800 rounded-lg p-3 flex flex-col justify-between">
+        <div class="text-xs text-zinc-400">Auto-Track Top Streams</div>
+        <label class="inline-flex items-center gap-2 mt-1 cursor-pointer">
+          <input id="autoTrackToggle" type="checkbox" onchange="toggleAutoTrack()" class="accent-pinkwire w-4 h-4" />
+          <span class="text-sm font-medium">Enabled</span>
+        </label>
+      </div>
+    </section>
+
+    <section class="bg-card border border-zinc-800 rounded-xl overflow-hidden">
+      <div class="px-4 py-3 border-b border-zinc-800 flex items-center justify-between">
+        <h2 class="font-semibold text-sm uppercase tracking-wider text-zinc-300">Live Watchdog Monitor</h2>
+        <span id="aiModelBadge" class="text-xs text-zinc-400">AI Model: —</span>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm text-left">
+          <thead class="bg-zinc-900/70 text-xs uppercase text-zinc-400">
+            <tr>
+              <th class="px-4 py-2.5">Streamer</th>
+              <th class="px-4 py-2.5">Platform</th>
+              <th class="px-4 py-2.5">Channel</th>
+              <th class="px-4 py-2.5">Status</th>
+              <th class="px-4 py-2.5">Chat Velocity (mps)</th>
+              <th class="px-4 py-2.5">Ring Buffer</th>
+            </tr>
+          </thead>
+          <tbody id="watchdogBody" class="divide-y divide-zinc-800/70"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="space-y-3">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <h2 class="font-semibold text-sm uppercase tracking-wider text-zinc-300">
+          Caught Clips Feed <span class="text-pinkwire">(5G Data-Saver Preview)</span>
+        </h2>
+        <div class="flex flex-wrap gap-2 text-xs">
+          <select id="filterChannel" onchange="loadClips()" class="bg-card border border-zinc-700 rounded px-2.5 py-1.5">
+            <option value="">All PinkWire Channels</option>
+            <option value="pinkwire_official">PinkWire Official (US)</option>
+            <option value="pinkwire_uk">PinkWire UK</option>
+            <option value="pinkwire_au">PinkWire AU</option>
+          </select>
+          <select id="filterPlatform" onchange="loadClips()" class="bg-card border border-zinc-700 rounded px-2.5 py-1.5">
+            <option value="">All Platforms</option>
+            <option value="twitch">Twitch</option>
+            <option value="kick">Kick</option>
+            <option value="youtube">YouTube</option>
+          </select>
+          <button onclick="loadClips()" class="bg-zinc-800 hover:bg-zinc-700 px-3 py-1.5 rounded">Refresh</button>
+        </div>
+      </div>
+
+      <div id="clipsGrid" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+    </section>
+  </main>
+
+  <script>
+    let vpsUrl = '';
+    let apiSecret = '';
+    let downloadedIds = new Set();
+    let ws = null;
+
+    async function init() {
+      const cfg = await (await fetch('/local/config')).json();
+      document.getElementById('vpsUrl').value = localStorage.getItem('pw_vps_url') || cfg.default_vps_url;
+      document.getElementById('apiSecret').value = localStorage.getItem('pw_api_secret') || cfg.default_api_secret;
+      downloadedIds = new Set(cfg.downloaded_ids || []);
+      await connectAll();
+    }
+
+    async function connectAll() {
+      vpsUrl = document.getElementById('vpsUrl').value.replace(/\/+$/, '');
+      apiSecret = document.getElementById('apiSecret').value;
+      localStorage.setItem('pw_vps_url', vpsUrl);
+      localStorage.setItem('pw_api_secret', apiSecret);
+
+      await loadProfiles();
+      await loadClips();
+      connectWebSocket();
+    }
+
+    function apiHeaders() {
+      return { 'X-API-Secret': apiSecret, 'Content-Type': 'application/json' };
+    }
+
+    async function loadProfiles() {
+      try {
+        const res = await fetch(`${vpsUrl}/api/profiles`, { headers: apiHeaders() });
+        if (!res.ok) throw new Error('Auth failed');
+        const data = await res.json();
+        const sel = document.getElementById('activeGameSelect');
+        sel.innerHTML = '';
+        for (const [id, g] of Object.entries(data.games || {})) {
+          const opt = document.createElement('option');
+          opt.value = id;
+          opt.textContent = g.display_name;
+          if (id === data.active_game) opt.selected = true;
+          sel.appendChild(opt);
+        }
+        document.getElementById('autoTrackToggle').checked = !!data.auto_track_top_streams;
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    function connectWebSocket() {
+      if (ws) ws.close();
+      const wsProto = vpsUrl.startsWith('https') ? 'wss' : 'ws';
+      const wsHost = vpsUrl.replace(/^https?:\/\//, '');
+      ws = new WebSocket(`${wsProto}://${wsHost}/ws/live?secret=${encodeURIComponent(apiSecret)}`);
+      const badge = document.getElementById('connBadge');
+
+      ws.onopen = () => {
+        badge.textContent = 'VPS Live';
+        badge.className = 'text-xs px-2 py-0.5 rounded bg-emerald-900/60 text-emerald-300';
+      };
+      ws.onclose = () => {
+        badge.textContent = 'Disconnected';
+        badge.className = 'text-xs px-2 py-0.5 rounded bg-red-900/60 text-red-300';
+      };
+      ws.onmessage = (ev) => renderWatchdog(JSON.parse(ev.data));
+    }
+
+    function renderWatchdog(st) {
+      document.getElementById('statWatchers').textContent = `${st.active_watchers} / ${st.max_watchers}`;
+      document.getElementById('statRing').textContent = `${st.active_ring_buffers.length} / ${st.max_ring_buffers}`;
+      document.getElementById('statStorage').textContent = `${st.storage_used_mb} / ${st.storage_limit_mb} MB`;
+      document.getElementById('aiModelBadge').textContent = `AI Model: ${st.ai_model || 'loading...'}`;
+
+      const tbody = document.getElementById('watchdogBody');
+      const rows = (st.streamers || []).sort((a, b) => Number(b.live) - Number(a.live));
+      tbody.innerHTML = rows.map(s => `
+        <tr class="hover:bg-zinc-800/30">
+          <td class="px-4 py-2 font-medium">${s.streamer_name}</td>
+          <td class="px-4 py-2 uppercase text-xs text-zinc-400">${s.platform}</td>
+          <td class="px-4 py-2 text-xs text-zinc-400">${s.channel_id}</td>
+          <td class="px-4 py-2">
+            ${s.live
+              ? `<span class="px-2 py-0.5 text-xs rounded ${s.in_spike ? 'bg-pinkwire text-white animate-pulse' : 'bg-emerald-900/50 text-emerald-300'}">${s.in_spike ? 'SPIKE!' : 'LIVE'}</span>`
+              : `<span class="text-xs text-zinc-500">Offline</span>`}
+          </td>
+          <td class="px-4 py-2 font-mono text-xs">
+            ${s.live ? `<span class="text-zinc-100">${s.current_mps}</span> <span class="text-zinc-500">/ base ${s.baseline_mps}</span>` : '—'}
+          </td>
+          <td class="px-4 py-2 text-xs">${s.ring_buffer ? '<span class="text-pinkwire font-semibold">720p Active</span>' : '<span class="text-zinc-600">—</span>'}</td>
+        </tr>
+      `).join('');
+    }
+
+    async function loadClips() {
+      const ch = document.getElementById('filterChannel').value;
+      const plat = document.getElementById('filterPlatform').value;
+      const params = new URLSearchParams();
+      if (ch) params.set('channel', ch);
+      if (plat) params.set('platform', plat);
+
+      try {
+        const res = await fetch(`${vpsUrl}/api/clips?${params}`, { headers: apiHeaders() });
+        const clips = await res.json();
+        const grid = document.getElementById('clipsGrid');
+        if (!clips.length) {
+          grid.innerHTML = `<div class="col-span-2 text-center py-10 text-zinc-500 bg-card rounded-xl border border-zinc-800">No clips caught yet. Waiting for chat spikes...</div>`;
+          return;
+        }
+
+        grid.innerHTML = clips.map(c => {
+          const isDl = downloadedIds.has(c.clip_id);
+          const sheetUrl = `/proxy/sheet/${c.clip_id}?vps_url=${encodeURIComponent(vpsUrl)}&api_secret=${encodeURIComponent(apiSecret)}`;
+          return `
+            <div class="bg-card border border-zinc-800 rounded-xl overflow-hidden flex flex-col">
+              <div class="relative bg-black">
+                <img src="${sheetUrl}" alt="3-frame preview" class="w-full h-36 object-cover" loading="lazy" />
+                <div class="absolute top-2 left-2 bg-pinkwire text-white text-xs font-bold px-2 py-0.5 rounded">
+                  Viral ${c.viral_score}/100
+                </div>
+                <div class="absolute top-2 right-2 bg-black/80 text-zinc-200 text-xs px-2 py-0.5 rounded">
+                  ${c.spike_multiplier}x spike · ${c.file_size_mb} MB
+                </div>
+              </div>
+              <div class="p-4 flex-1 flex flex-col justify-between space-y-3">
+                <div>
+                  <div class="flex items-center justify-between text-xs text-zinc-400">
+                    <span>${c.streamer_name} · ${c.platform.toUpperCase()} · ${c.channel_handle}</span>
+                    <button onclick="toggleStar('${c.clip_id}', ${!c.starred})" class="${c.starred ? 'text-yellow-400' : 'text-zinc-500'} hover:text-yellow-300">
+                      ${c.starred ? '★ Starred' : '☆ Star'}
+                    </button>
+                  </div>
+                  <h3 class="font-bold text-zinc-100 mt-1">${c.suggested_hook}</h3>
+                  <p class="text-xs text-zinc-400 mt-1">${c.moment_summary}</p>
+                  <div class="mt-2 bg-zinc-900/80 rounded p-2 text-[11px] font-mono text-zinc-400 max-h-16 overflow-y-auto">
+                    ${(c.peak_chat_sample || []).slice(0, 5).map(m => `<div>&gt; ${m}</div>`).join('')}
+                  </div>
+                </div>
+                <div class="flex flex-wrap gap-2 pt-2 border-t border-zinc-800 text-xs">
+                  <button onclick="downloadClip('${c.clip_id}', this)"
+                    class="flex-1 bg-pinkwire hover:opacity-90 text-white font-semibold py-1.5 px-3 rounded">
+                    ${isDl ? '✓ Re-Download Bundle' : `Download MP4 (${c.file_size_mb} MB)`}
+                  </button>
+                  <button onclick="renderChat('${c.clip_id}', false, this)"
+                    class="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 py-1.5 px-2.5 rounded">
+                    Chat WebM
+                  </button>
+                  <button onclick="renderChat('${c.clip_id}', true, this)"
+                    class="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 py-1.5 px-2.5 rounded">
+                    Burn Chat
+                  </button>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    async function downloadClip(clipId, btn) {
+      btn.disabled = true;
+      btn.textContent = 'Downloading...';
+      try {
+        const res = await fetch(`/local/download/${clipId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ vps_url: vpsUrl, api_secret: apiSecret }),
+        });
+        if (!res.ok) throw new Error('Download failed');
+        downloadedIds.add(clipId);
+        btn.textContent = '✓ Saved to downloads/';
+      } catch (e) {
+        btn.textContent = 'Error — Retry';
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function renderChat(clipId, burnIn, btn) {
+      btn.disabled = true;
+      const old = btn.textContent;
+      btn.textContent = 'Rendering...';
+      try {
+        const res = await fetch(`/local/render-chat/${clipId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ vps_url: vpsUrl, api_secret: apiSecret, burn_in: burnIn }),
+        });
+        if (!res.ok) throw new Error('Render failed');
+        btn.textContent = '✓ Ready';
+      } catch (e) {
+        btn.textContent = 'Failed';
+      } finally {
+        setTimeout(() => { btn.textContent = old; btn.disabled = false; }, 2500);
+      }
+    }
+
+    async function toggleStar(clipId, starred) {
+      await fetch(`${vpsUrl}/api/clips/${clipId}/star`, {
+        method: 'POST',
+        headers: apiHeaders(),
+        body: JSON.stringify({ starred }),
+      });
+      loadClips();
+    }
+
+    async function toggleAutoTrack() {
+      const enabled = document.getElementById('autoTrackToggle').checked;
+      await fetch(`${vpsUrl}/api/settings/auto-track`, {
+        method: 'POST',
+        headers: apiHeaders(),
+        body: JSON.stringify({ enabled }),
+      });
+    }
+
+    async function changeActiveGame() {
+      const game_id = document.getElementById('activeGameSelect').value;
+      await fetch(`${vpsUrl}/api/settings/active-game`, {
+        method: 'POST',
+        headers: apiHeaders(),
+        body: JSON.stringify({ game_id }),
+      });
+    }
+
+    init();
+  </script>
+</body>
+</html>
