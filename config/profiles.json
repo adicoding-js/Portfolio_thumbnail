@@ -6,9 +6,9 @@
   "active_game": "gta_vi",
   "auto_track_top_streams": true,
   "capture_defaults": {
-    "pre_buffer_sec": 60,
-    "post_buffer_sec": 10,
-    "max_extend_sec": 120,
+    "pre_buffer_sec": 120,
+    "post_buffer_sec": 60,
+    "max_extend_sec": 240,
     "cooldown_sec": 20
   },
   "games": {
@@ -80,7 +80,7 @@
           "name": "xQc",
           "platform": "twitch",
           "handle": "xqc",
-          "priority": 2
+          "priority": 1
         },
         {
           "name": "CaseOh",
@@ -92,6 +92,36 @@
           "name": "Jynxzi",
           "platform": "twitch",
           "handle": "jynxzi",
+          "priority": 1
+        },
+        {
+          "name": "Adin Ross",
+          "platform": "kick",
+          "handle": "adinross",
+          "priority": 1
+        },
+        {
+          "name": "Summit1g",
+          "platform": "twitch",
+          "handle": "summit1g",
+          "priority": 2
+        },
+        {
+          "name": "Buddha",
+          "platform": "twitch",
+          "handle": "buddha",
+          "priority": 2
+        },
+        {
+          "name": "Tarik",
+          "platform": "twitch",
+          "handle": "tarik",
+          "priority": 2
+        },
+        {
+          "name": "Clix",
+          "platform": "twitch",
+          "handle": "clix",
           "priority": 2
         }
       ]
@@ -121,12 +151,6 @@
           "priority": 1
         },
         {
-          "name": "Behzinga",
-          "platform": "twitch",
-          "handle": "behzinga",
-          "priority": 2
-        },
-        {
           "name": "Sidemen",
           "platform": "youtube",
           "handle": "UCDogdKl7t7NHzQ95aEwkdMw",
@@ -137,6 +161,36 @@
           "platform": "youtube",
           "handle": "UCGmnsW623G1r-Chmo5RB4Yw",
           "priority": 1
+        },
+        {
+          "name": "Behzinga",
+          "platform": "twitch",
+          "handle": "behzinga",
+          "priority": 2
+        },
+        {
+          "name": "Zerkaa",
+          "platform": "twitch",
+          "handle": "zerkaa",
+          "priority": 2
+        },
+        {
+          "name": "TommyInnit",
+          "platform": "twitch",
+          "handle": "tommyinnit",
+          "priority": 2
+        },
+        {
+          "name": "Tubbo",
+          "platform": "twitch",
+          "handle": "tubbo",
+          "priority": 2
+        },
+        {
+          "name": "GeorgeNotFound",
+          "platform": "twitch",
+          "handle": "georgenotfound",
+          "priority": 2
         },
         {
           "name": "Fanum",
@@ -155,12 +209,13 @@
     "pinkwire_au": {
       "name": "PinkWire AU",
       "handle": "@PinkwireAU",
-      "region": "Oceania / Early Shift",
+      "region": "Oceania / Early Shift (AU & NZ First Look)",
       "default_tags": [
         "gta6",
         "gtavi",
         "lazarbeam",
         "augaming",
+        "nzgaming",
         "pinkwireau"
       ],
       "roster": [
@@ -174,7 +229,7 @@
           "name": "Crayator",
           "platform": "twitch",
           "handle": "crayator",
-          "priority": 2
+          "priority": 1
         },
         {
           "name": "Loserfruit",
@@ -186,12 +241,54 @@
           "name": "Fresh",
           "platform": "twitch",
           "handle": "fresh",
-          "priority": 2
+          "priority": 1
         },
         {
           "name": "Muselk",
           "platform": "youtube",
           "handle": "UCd534c_ehOvrLVL2v7Nl61w",
+          "priority": 1
+        },
+        {
+          "name": "Whippy",
+          "platform": "twitch",
+          "handle": "whippy",
+          "priority": 1
+        },
+        {
+          "name": "Lachlan",
+          "platform": "youtube",
+          "handle": "UCrKaTCv_hVpG_5fQ7_eF7qQ",
+          "priority": 1
+        },
+        {
+          "name": "BazzaGazza",
+          "platform": "twitch",
+          "handle": "bazzagazza",
+          "priority": 1
+        },
+        {
+          "name": "PaladinAmber",
+          "platform": "twitch",
+          "handle": "paladinamber",
+          "priority": 1
+        },
+        {
+          "name": "AlanaAussie",
+          "platform": "twitch",
+          "handle": "alanaaussie",
+          "priority": 2
+        },
+        {
+          "name": "HeyImBee",
+          "platform": "twitch",
+          "handle": "heyimbee",
+          "priority": 2
+        },
+        {
+          "name": "Fasffy",
+          "platform": "twitch",
+          "handle": "fasffy",
           "priority": 2
         }
       ]

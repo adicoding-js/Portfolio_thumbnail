@@ -131,7 +131,7 @@ class AITriageEngine:
         body = {
             "model": self.selected_model,
             "temperature": 0.2,
-            "max_tokens": 260,
+            "max_tokens": 1000,
             "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content": system_prompt},

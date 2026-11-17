@@ -53,9 +53,9 @@ class RollingRingBuffer:
         extra_flags = "--twitch-disable-ads " if self.platform == "twitch" else ""
         cmd = (
             f"'{s_bin}' {extra_flags}--stdout --retry-streams 5 --retry-open 3 "
-            f"'{self.stream_url}' 480p,720p,720p60,best | "
+            f"'{self.stream_url}' 720p60,720p,best | "
             f"'{ff_bin}' -hide_banner -loglevel error -i pipe:0 -c copy "
-            f"-f segment -segment_time 5 -segment_wrap 16 -reset_timestamps 1 '{seg_pattern}'"
+            f"-f segment -segment_time 5 -segment_wrap 72 -reset_timestamps 1 '{seg_pattern}'"
         )
         self._proc = await asyncio.create_subprocess_shell(
             cmd,
@@ -87,7 +87,7 @@ class RollingRingBuffer:
                 except OSError:
                     pass
 
-    async def extract_clip(self, output_mp4: Path, duration_sec: int = 75) -> bool:
+    async def extract_clip(self, output_mp4: Path, duration_sec: int = 180) -> bool:
         segments = sorted(self.dir.glob("seg_*.ts"), key=lambda p: p.stat().st_mtime)
         if not segments:
             logger.warning("No ring-buffer segments found for %s", self.stream_key)
@@ -205,7 +205,7 @@ class RingBufferManager:
         if buf:
             await buf.stop()
 
-    async def extract_clip(self, handle_or_key: str, output_mp4: Path, duration_sec: int = 75) -> bool:
+    async def extract_clip(self, handle_or_key: str, output_mp4: Path, duration_sec: int = 180) -> bool:
         buf = self.get_buffer(handle_or_key)
         if not buf or not buf.is_running:
             return False
@@ -258,8 +258,41 @@ async def generate_contact_sheet(mp4_path: Path, out_jpg: Path) -> bool:
     return out_jpg.exists() and out_jpg.stat().st_size > 0
 
 
+def is_hype_shielded(meta: Dict[str, Any]) -> bool:
+    """
+    Returns True if clip is protected by the Multi-Factor Hype Shield:
+    - Manually Starred (★)
+    - Exceptional virality: viral_score >= 85
+    - Massive chat explosion: multiplier >= 3.5x AND unique_chatters >= 40
+    - Extended high-intensity moment: duration >= 45s AND multiplier >= 2.5x
+    - Certified entertaining moment (clutch, fail, rage, funny, shock) with viral_score >= 75
+    """
+    if meta.get("starred", False):
+        return True
+    if int(meta.get("viral_score", 0)) >= 85:
+        return True
+
+    multiplier = float(meta.get("spike_multiplier", 1.0))
+    chatters = int(meta.get("unique_chatters", 0))
+    if multiplier >= 3.5 and chatters >= 40:
+        return True
+
+    duration = float(meta.get("duration_sec", 0))
+    if duration >= 45.0 and multiplier >= 2.5:
+        return True
+
+    moment_type = str(meta.get("moment_type", "")).lower()
+    if moment_type in ("clutch", "fail", "rage", "funny", "shock") and int(meta.get("viral_score", 0)) >= 75:
+        return True
+
+    return False
+
+
 def enforce_storage_guard(clips_dir: Path, max_mb: int) -> int:
-    """Enforces MAX_VPS_STORAGE_MB by deleting oldest unstarred clips first."""
+    """
+    Enforces MAX_VPS_STORAGE_MB by pruning clips in increasing order of viral score
+    (lowest virality goes first). Hype-shielded and starred clips are protected.
+    """
     import json
 
     def dir_size_mb() -> float:
@@ -270,24 +303,59 @@ def enforce_storage_guard(clips_dir: Path, max_mb: int) -> int:
     if dir_size_mb() <= max_mb:
         return 0
 
-    meta_files = sorted(clips_dir.glob("*.meta.json"), key=lambda p: p.stat().st_mtime)
+    meta_files = list(clips_dir.glob("*.meta.json"))
+    clip_records = []
     for meta_path in meta_files:
-        if dir_size_mb() <= max_mb * 0.90:
-            break
         try:
             with meta_path.open("r", encoding="utf-8") as f:
                 meta = json.load(f)
-            if meta.get("starred", False):
-                continue
+            clip_records.append((meta_path, meta))
         except Exception:
-            pass
+            continue
 
-        clip_id = meta_path.name.replace(".meta.json", "")
+    # Split into prunable candidates and hype-shielded clips
+    prunable = []
+    shielded = []
+    for meta_path, meta in clip_records:
+        if is_hype_shielded(meta):
+            shielded.append((meta_path, meta))
+        else:
+            prunable.append((meta_path, meta))
+
+    # Sort prunable in increasing order of viral_score (lowest virality first), then oldest created_at
+    prunable.sort(key=lambda item: (item[1].get("viral_score", 0), item[1].get("created_at", 0)))
+
+    target_mb = max_mb * 0.90
+    for meta_path, meta in prunable:
+        if dir_size_mb() <= target_mb:
+            break
+        clip_id = meta.get("clip_id") or meta_path.name.replace(".meta.json", "")
         for suffix in (".mp4", ".meta.json", ".chat.json", ".sheet.jpg", ".chat.webm", ".burned.mp4"):
             target = clips_dir / f"{clip_id}{suffix}"
             if target.exists():
                 target.unlink(missing_ok=True)
         pruned += 1
-        logger.info("Storage guard pruned old unstarred clip: %s", clip_id)
+        logger.info(
+            "Storage guard pruned low-virality clip: %s (score=%s, mult=%.1fx)",
+            clip_id, meta.get("viral_score"), float(meta.get("spike_multiplier", 1.0))
+        )
+
+    # Emergency safety fallback: if disk is STILL overflowing, prune unstarred shielded clips with lowest score
+    if dir_size_mb() > max_mb:
+        emergency_candidates = [it for it in shielded if not it[1].get("starred", False)]
+        emergency_candidates.sort(key=lambda item: (item[1].get("viral_score", 0), item[1].get("created_at", 0)))
+        for meta_path, meta in emergency_candidates:
+            if dir_size_mb() <= target_mb:
+                break
+            clip_id = meta.get("clip_id") or meta_path.name.replace(".meta.json", "")
+            for suffix in (".mp4", ".meta.json", ".chat.json", ".sheet.jpg", ".chat.webm", ".burned.mp4"):
+                target = clips_dir / f"{clip_id}{suffix}"
+                if target.exists():
+                    target.unlink(missing_ok=True)
+            pruned += 1
+            logger.warning(
+                "Emergency storage guard pruned shielded clip: %s (score=%s)",
+                clip_id, meta.get("viral_score")
+            )
 
     return pruned

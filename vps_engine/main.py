@@ -113,9 +113,9 @@ class LiveClipperEngine:
             game_id=active_game,
             lexicon=settings.lexicon,
             on_spike_ready=self._on_spike_ready,
-            pre_buffer_sec=int(defaults.get("pre_buffer_sec", 60)),
-            post_buffer_sec=int(defaults.get("post_buffer_sec", 10)),
-            max_extend_sec=int(defaults.get("max_extend_sec", 120)),
+            pre_buffer_sec=int(defaults.get("pre_buffer_sec", 120)),
+            post_buffer_sec=int(defaults.get("post_buffer_sec", 60)),
+            max_extend_sec=int(defaults.get("max_extend_sec", 240)),
             cooldown_sec=int(defaults.get("cooldown_sec", 20)),
         )
 
@@ -310,14 +310,14 @@ class LiveClipperEngine:
 
         captured = False
         if event.platform == "twitch":
-            # Check if rolling ring-buffer is active for this twitch stream (captures 60s buildup)
+            # Check if rolling ring-buffer is active for this twitch stream (captures 120s buildup)
             if self.ring_buffers.get_buffer(event.stream_key) or self.ring_buffers.get_buffer(event.handle.lower()):
                 captured = await self.ring_buffers.extract_clip(
-                    event.stream_key, mp4_path, duration_sec=min(80, clip_duration)
+                    event.stream_key, mp4_path, duration_sec=min(300, clip_duration)
                 )
                 if not captured:
                     captured = await self.ring_buffers.extract_clip(
-                        event.handle.lower(), mp4_path, duration_sec=min(80, clip_duration)
+                        event.handle.lower(), mp4_path, duration_sec=min(300, clip_duration)
                     )
             # Fall back to live HLS edge capture if stream wasn't buffered
             if not captured:
@@ -334,11 +334,11 @@ class LiveClipperEngine:
                 captured = await self.youtube.capture_dvr_clip(video_id, mp4_path, duration_sec=clip_duration)
         elif event.platform == "kick":
             captured = await self.ring_buffers.extract_clip(
-                event.stream_key, mp4_path, duration_sec=min(80, clip_duration)
+                event.stream_key, mp4_path, duration_sec=min(300, clip_duration)
             )
             if not captured:
                 captured = await self.ring_buffers.extract_clip(
-                    event.handle.lower(), mp4_path, duration_sec=min(80, clip_duration)
+                    event.handle.lower(), mp4_path, duration_sec=min(300, clip_duration)
                 )
 
         if not captured:
@@ -364,6 +364,7 @@ class LiveClipperEngine:
             "channel_handle": ch_cfg.get("handle", ""),
             "game_id": event.game_id,
             "game_name": game_name,
+            "duration_sec": clip_duration,
             "tags": tags,
             "viral_score": triage["viral_score"],
             "moment_type": triage["moment_type"],
@@ -526,6 +527,7 @@ class LiveClipperEngine:
             "channel_handle": ch_cfg.get("handle", ""),
             "game_id": watcher.detector.game_id,
             "game_name": game_name,
+            "duration_sec": clip_duration,
             "tags": tags,
             "viral_score": 99,
             "moment_type": "test_clip",

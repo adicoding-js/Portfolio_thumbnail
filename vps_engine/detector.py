@@ -123,9 +123,9 @@ class SpikeDetector:
         game_id: str,
         lexicon: Dict[str, Any],
         on_spike_ready: Callable[[SpikeEvent], None],
-        pre_buffer_sec: int = 60,
-        post_buffer_sec: int = 10,
-        max_extend_sec: int = 120,
+        pre_buffer_sec: int = 120,
+        post_buffer_sec: int = 60,
+        max_extend_sec: int = 240,
         cooldown_sec: int = 20,
         trigger_multiplier: float = 2.6,
         extend_multiplier: float = 1.8,
@@ -140,8 +140,8 @@ class SpikeDetector:
         self.game_id = game_id
         self.on_spike_ready = on_spike_ready
 
-        self.pre_buffer_sec = max(15, min(90, pre_buffer_sec))
-        self.post_buffer_sec = max(5, min(30, post_buffer_sec))
+        self.pre_buffer_sec = max(15, min(180, pre_buffer_sec))
+        self.post_buffer_sec = max(5, min(120, post_buffer_sec))
         self.max_extend_sec = max_extend_sec
         self.cooldown_sec = cooldown_sec
         self.trigger_multiplier = trigger_multiplier
@@ -176,7 +176,7 @@ class SpikeDetector:
             self.started_at = now
 
         self._chat_history.append(msg)
-        hist_cutoff = now - 180.0
+        hist_cutoff = now - 480.0
         while self._chat_history and self._chat_history[0].timestamp < hist_cutoff:
             self._chat_history.popleft()
 
