@@ -140,7 +140,7 @@ class TwitchPlatform:
             except Exception as exc:
                 logger.warning("Helix clip failed for %s (%s); falling back to HLS edge.", handle, exc)
 
-        clip_len = min(60, max(20, duration_sec))
+        clip_len = max(20, min(600, duration_sec))
         s_bin = resolve_bin("streamlink")
         ff_bin = resolve_bin("ffmpeg")
         cmd = (

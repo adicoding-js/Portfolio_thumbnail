@@ -55,7 +55,7 @@ class RollingRingBuffer:
             f"'{s_bin}' {extra_flags}--stdout --retry-streams 5 --retry-open 3 "
             f"'{self.stream_url}' 720p60,720p,best | "
             f"'{ff_bin}' -hide_banner -loglevel error -i pipe:0 -c copy "
-            f"-f segment -segment_time 5 -segment_wrap 72 -reset_timestamps 1 '{seg_pattern}'"
+            f"-f segment -segment_time 5 -segment_wrap 140 -reset_timestamps 1 '{seg_pattern}'"
         )
         self._proc = await asyncio.create_subprocess_shell(
             cmd,
@@ -87,7 +87,7 @@ class RollingRingBuffer:
                 except OSError:
                     pass
 
-    async def extract_clip(self, output_mp4: Path, duration_sec: int = 180) -> bool:
+    async def extract_clip(self, output_mp4: Path, duration_sec: int = 600) -> bool:
         segments = sorted(self.dir.glob("seg_*.ts"), key=lambda p: p.stat().st_mtime)
         if not segments:
             logger.warning("No ring-buffer segments found for %s", self.stream_key)
@@ -205,7 +205,7 @@ class RingBufferManager:
         if buf:
             await buf.stop()
 
-    async def extract_clip(self, handle_or_key: str, output_mp4: Path, duration_sec: int = 180) -> bool:
+    async def extract_clip(self, handle_or_key: str, output_mp4: Path, duration_sec: int = 600) -> bool:
         buf = self.get_buffer(handle_or_key)
         if not buf or not buf.is_running:
             return False

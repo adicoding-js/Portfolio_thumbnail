@@ -429,10 +429,10 @@
     }
 
     async function forceTestClip(streamKey, btn) {
-      if (!confirm(`Trigger an immediate 30s test clip for ${streamKey}?`)) return;
+      if (!confirm(`Trigger an immediate 2-min test clip for ${streamKey}?`)) return;
       btn.disabled = true;
       const oldHtml = btn.innerHTML;
-      btn.innerHTML = '⚡ Capturing 30s...';
+      btn.innerHTML = '⚡ Capturing 2m...';
       try {
         const res = await fetch(`${vpsUrl}/api/test-clip/${encodeURIComponent(streamKey)}`, {
           method: 'POST',

@@ -6,10 +6,10 @@
   "active_game": "gta_vi",
   "auto_track_top_streams": true,
   "capture_defaults": {
-    "pre_buffer_sec": 120,
-    "post_buffer_sec": 60,
-    "max_extend_sec": 240,
-    "cooldown_sec": 20
+    "pre_buffer_sec": 480,
+    "post_buffer_sec": 120,
+    "max_extend_sec": 300,
+    "cooldown_sec": 30
   },
   "games": {
     "gta_vi": {
