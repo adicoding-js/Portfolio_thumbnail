@@ -11,16 +11,26 @@ from .config import settings
 logger = logging.getLogger("pinkwire.ring_buffer")
 
 
-class KickRingBuffer:
+class RollingRingBuffer:
     """
-    Ultra-lightweight 720p rolling .ts ring-buffer for a single Kick stream.
-    Uses streamlink -> ffmpeg -c copy (near-zero CPU, ~35MB disk for 90s window).
+    Lightweight 480p/720p rolling .ts ring-buffer for Twitch or Kick streams.
+    Uses streamlink -> ffmpeg -c copy (near-zero CPU, ~30-40MB disk for 80s window).
     """
 
-    def __init__(self, handle: str, stream_url: str, buffer_root: Path) -> None:
-        self.handle = handle
+    def __init__(
+        self,
+        handle: str,
+        stream_url: str,
+        buffer_root: Path,
+        platform: str = "kick",
+        priority: int = 2,
+    ) -> None:
+        self.handle = handle.lower()
         self.stream_url = stream_url
-        self.dir = buffer_root / f"kick_{handle}"
+        self.platform = platform.lower()
+        self.priority = priority
+        self.stream_key = f"{self.platform}:{self.handle}"
+        self.dir = buffer_root / f"{self.platform}_{self.handle}"
         self.dir.mkdir(parents=True, exist_ok=True)
         self._proc: Optional[asyncio.subprocess.Process] = None
         self._running = False
@@ -38,18 +48,22 @@ class KickRingBuffer:
         self.started_at = time.time()
 
         seg_pattern = str(self.dir / "seg_%03d.ts")
+        extra_flags = "--twitch-disable-ads " if self.platform == "twitch" else ""
         cmd = (
-            f"streamlink --stdout --retry-streams 5 --retry-open 3 "
-            f"'{self.stream_url}' 720p,720p60,best | "
+            f"streamlink {extra_flags}--stdout --retry-streams 5 --retry-open 3 "
+            f"'{self.stream_url}' 480p,720p,720p60,best | "
             f"ffmpeg -hide_banner -loglevel error -i pipe:0 -c copy "
-            f"-f segment -segment_time 5 -segment_wrap 18 -reset_timestamps 1 '{seg_pattern}'"
+            f"-f segment -segment_time 5 -segment_wrap 16 -reset_timestamps 1 '{seg_pattern}'"
         )
         self._proc = await asyncio.create_subprocess_shell(
             cmd,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
         )
-        logger.info("Started 720p Kick ring-buffer for %s", self.handle)
+        logger.info(
+            "Started rolling ring-buffer for %s [%s] (priority %d)",
+            self.stream_key, self.platform.upper(), self.priority,
+        )
 
     async def stop(self) -> None:
         self._running = False
@@ -61,7 +75,7 @@ class KickRingBuffer:
                 self._proc.kill()
         self._proc = None
         self._clean_dir()
-        logger.info("Stopped Kick ring-buffer for %s", self.handle)
+        logger.info("Stopped ring-buffer for %s", self.stream_key)
 
     def _clean_dir(self) -> None:
         if self.dir.exists():
@@ -74,7 +88,7 @@ class KickRingBuffer:
     async def extract_clip(self, output_mp4: Path, duration_sec: int = 75) -> bool:
         segments = sorted(self.dir.glob("seg_*.ts"), key=lambda p: p.stat().st_mtime)
         if not segments:
-            logger.warning("No ring-buffer segments found for kick:%s", self.handle)
+            logger.warning("No ring-buffer segments found for %s", self.stream_key)
             return False
 
         if len(segments) > 2:
@@ -98,7 +112,10 @@ class KickRingBuffer:
             )
             _, stderr = await proc.communicate()
             if proc.returncode != 0:
-                logger.error("Ring-buffer concat failed for %s: %s", self.handle, stderr.decode(errors="ignore"))
+                logger.error(
+                    "Ring-buffer concat failed for %s (exit %d): %s",
+                    self.stream_key, proc.returncode, stderr.decode(errors="ignore"),
+                )
                 return False
             return output_mp4.exists() and output_mp4.stat().st_size > 10_000
         finally:
@@ -106,30 +123,88 @@ class KickRingBuffer:
                 concat_file.unlink(missing_ok=True)
 
 
+KickRingBuffer = RollingRingBuffer
+
+
 class RingBufferManager:
-    """Strictly enforces MAX_RING_BUFFERS=2 to protect Hack Club Nest RAM & 16GB disk."""
+    """Strictly enforces MAX_RING_BUFFERS=4 to protect Hack Club Nest RAM & 16GB disk."""
 
     def __init__(self) -> None:
         self.max_buffers = settings.max_ring_buffers
-        self.buffers: Dict[str, KickRingBuffer] = {}
+        self.buffers: Dict[str, RollingRingBuffer] = {}
 
-    async def ensure_buffer(self, handle: str, stream_url: str, priority: int = 2) -> bool:
-        if handle in self.buffers and self.buffers[handle].is_running:
+    def _resolve_key(self, handle_or_key: str, platform: str = "kick") -> str:
+        if ":" in handle_or_key:
+            return handle_or_key.lower()
+        return f"{platform.lower()}:{handle_or_key.lower()}"
+
+    def get_buffer(self, handle_or_key: str) -> Optional[RollingRingBuffer]:
+        key = handle_or_key.lower()
+        if key in self.buffers:
+            return self.buffers[key]
+        for buf in self.buffers.values():
+            if buf.handle == key or buf.stream_key == key:
+                return buf
+        return None
+
+    async def ensure_buffer(
+        self,
+        handle_or_key: str,
+        stream_url: str,
+        priority: int = 2,
+        platform: str = "kick",
+    ) -> bool:
+        key = self._resolve_key(handle_or_key, platform=platform)
+        if key in self.buffers and self.buffers[key].is_running:
+            self.buffers[key].priority = priority
             return True
+
         if len(self.buffers) >= self.max_buffers:
-            return False
-        buf = KickRingBuffer(handle, stream_url, settings.ring_buffer_dir)
+            worst_key = None
+            worst_prio = -1
+            for k, b in self.buffers.items():
+                if b.priority > worst_prio:
+                    worst_prio = b.priority
+                    worst_key = k
+
+            if worst_key and worst_prio > priority:
+                logger.info(
+                    "Evicting lower priority ring-buffer %s (prio %d) for %s (prio %d)",
+                    worst_key, worst_prio, key, priority,
+                )
+                await self.release_buffer(worst_key)
+            else:
+                return False
+
+        plat = platform
+        handle = handle_or_key
+        if ":" in handle_or_key:
+            plat, handle = handle_or_key.split(":", 1)
+
+        buf = RollingRingBuffer(
+            handle=handle,
+            stream_url=stream_url,
+            buffer_root=settings.ring_buffer_dir,
+            platform=plat,
+            priority=priority,
+        )
         await buf.start()
-        self.buffers[handle] = buf
+        self.buffers[key] = buf
         return True
 
-    async def release_buffer(self, handle: str) -> None:
-        buf = self.buffers.pop(handle, None)
+    async def release_buffer(self, handle_or_key: str) -> None:
+        key = handle_or_key.lower()
+        buf = self.buffers.pop(key, None)
+        if not buf:
+            for k, b in list(self.buffers.items()):
+                if b.handle == key or b.stream_key == key:
+                    buf = self.buffers.pop(k)
+                    break
         if buf:
             await buf.stop()
 
-    async def extract_clip(self, handle: str, output_mp4: Path, duration_sec: int = 75) -> bool:
-        buf = self.buffers.get(handle)
+    async def extract_clip(self, handle_or_key: str, output_mp4: Path, duration_sec: int = 75) -> bool:
+        buf = self.get_buffer(handle_or_key)
         if not buf or not buf.is_running:
             return False
         return await buf.extract_clip(output_mp4, duration_sec=duration_sec)
@@ -139,7 +214,12 @@ class RingBufferManager:
             await self.release_buffer(handle)
 
     def active_handles(self) -> list[str]:
-        return [h for h, b in self.buffers.items() if b.is_running]
+        res = []
+        for b in self.buffers.values():
+            if b.is_running:
+                res.append(b.handle)
+                res.append(b.stream_key)
+        return list(dict.fromkeys(res))
 
 
 async def generate_contact_sheet(mp4_path: Path, out_jpg: Path) -> bool:
@@ -167,7 +247,12 @@ async def generate_contact_sheet(mp4_path: Path, out_jpg: Path) -> bool:
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.PIPE,
     )
-    await proc.communicate()
+    _, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        logger.error(
+            "Contact sheet ffmpeg failed for %s (exit %d): %s",
+            mp4_path.name, proc.returncode, stderr.decode(errors="ignore")
+        )
     return out_jpg.exists() and out_jpg.stat().st_size > 0
 
 

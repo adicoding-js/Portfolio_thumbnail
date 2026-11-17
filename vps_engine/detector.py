@@ -129,8 +129,8 @@ class SpikeDetector:
         cooldown_sec: int = 20,
         trigger_multiplier: float = 2.6,
         extend_multiplier: float = 1.8,
-        min_baseline_mps: float = 1.5,
-        warmup_sec: float = 60.0,
+        min_baseline_mps: float = 0.8,
+        warmup_sec: float = 30.0,
     ) -> None:
         self.stream_key = stream_key
         self.streamer_name = streamer_name
@@ -228,10 +228,19 @@ class SpikeDetector:
         if not self._in_spike:
             if now < self._cooldown_until:
                 return None
+
+            # Adaptive thresholds based on baseline chat velocity
+            if self.baseline_mps <= 2.5:
+                req_multiplier = 2.0
+                req_unique = 4
+            else:
+                req_multiplier = 2.4
+                req_unique = 6
+
             if (
-                multiplier >= self.trigger_multiplier
+                multiplier >= req_multiplier
                 and self.current_mps >= self.min_baseline_mps
-                and self.unique_chatters_10s >= 6
+                and self.unique_chatters_10s >= req_unique
             ):
                 self._in_spike = True
                 self._spike_start = now

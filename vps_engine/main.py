@@ -122,12 +122,17 @@ class LiveClipperEngine:
         stop_event = asyncio.Event()
         if platform == "twitch":
             coro = self.twitch.listen_chat(handle, detector.ingest, stop_event)
+            await self.ring_buffers.ensure_buffer(
+                stream_key, f"https://twitch.tv/{handle}", priority=priority, platform="twitch"
+            )
         elif platform == "kick":
             chatroom_id = meta.get("chatroom_id")
             if not chatroom_id:
                 return
             coro = self.kick.listen_chat(handle, int(chatroom_id), detector.ingest, stop_event)
-            await self.ring_buffers.ensure_buffer(handle.lower(), meta["stream_url"], priority=priority)
+            await self.ring_buffers.ensure_buffer(
+                stream_key, meta["stream_url"], priority=priority, platform="kick"
+            )
         elif platform == "youtube":
             video_id = meta.get("video_id")
             if not video_id:
@@ -157,7 +162,8 @@ class LiveClipperEngine:
             return
         w.stop_event.set()
         w.task.cancel()
-        if w.platform == "kick":
+        if w.platform in ("kick", "twitch"):
+            await self.ring_buffers.release_buffer(w.stream_key)
             await self.ring_buffers.release_buffer(w.handle.lower())
         logger.info("Detached offline watcher: %s", stream_key)
 
@@ -218,13 +224,23 @@ class LiveClipperEngine:
                     slots = settings.max_chat_watchers - len(live_keys)
                     if slots > 0:
                         cat_name = game_cfg.get("twitch_category_name", "Grand Theft Auto VI")
-                        top = await self.twitch.get_top_streams_for_game(self._session, cat_name, limit=slots)
-                        if not top:
-                            for fb in game_cfg.get("twitch_fallback_categories", []):
-                                top = await self.twitch.get_top_streams_for_game(self._session, fb, limit=slots)
-                                if top:
+                        raw_top = await self.twitch.get_top_streams_for_game(self._session, cat_name, limit=15)
+                        # Require viewer_count >= 150 to ignore dead streams
+                        active_top = [s for s in raw_top if s.get("viewer_count", 0) >= 150]
+
+                        # If active game has fewer than 5 live streams with >= 150 viewers,
+                        # automatically fall back to "Just Chatting" and "Grand Theft Auto V" top streams
+                        if len(active_top) < 5:
+                            for fb_cat in ("Just Chatting", "Grand Theft Auto V"):
+                                if len(active_top) >= 10:
                                     break
-                        for s in top:
+                                fb_streams = await self.twitch.get_top_streams_for_game(self._session, fb_cat, limit=10)
+                                for s in fb_streams:
+                                    if s.get("viewer_count", 0) >= 150:
+                                        if not any(it["user_login"].lower() == s["user_login"].lower() for it in active_top):
+                                            active_top.append(s)
+
+                        for s in active_top:
                             h = s["user_login"].lower()
                             key = f"twitch:{h}"
                             if key not in live_keys and len(live_keys) < settings.max_chat_watchers:
@@ -294,21 +310,36 @@ class LiveClipperEngine:
 
         captured = False
         if event.platform == "twitch":
-            captured = await self.twitch.capture_clip(
-                self._session,
-                event.handle,
-                meta_info.get("broadcaster_id"),
-                mp4_path,
-                duration_sec=clip_duration,
-            )
+            # Check if rolling ring-buffer is active for this twitch stream (captures 60s buildup)
+            if self.ring_buffers.get_buffer(event.stream_key) or self.ring_buffers.get_buffer(event.handle.lower()):
+                captured = await self.ring_buffers.extract_clip(
+                    event.stream_key, mp4_path, duration_sec=min(80, clip_duration)
+                )
+                if not captured:
+                    captured = await self.ring_buffers.extract_clip(
+                        event.handle.lower(), mp4_path, duration_sec=min(80, clip_duration)
+                    )
+            # Fall back to live HLS edge capture if stream wasn't buffered
+            if not captured:
+                captured = await self.twitch.capture_clip(
+                    self._session,
+                    event.handle,
+                    meta_info.get("broadcaster_id"),
+                    mp4_path,
+                    duration_sec=clip_duration,
+                )
         elif event.platform == "youtube":
             video_id = meta_info.get("video_id")
             if video_id:
                 captured = await self.youtube.capture_dvr_clip(video_id, mp4_path, duration_sec=clip_duration)
         elif event.platform == "kick":
             captured = await self.ring_buffers.extract_clip(
-                event.handle.lower(), mp4_path, duration_sec=min(90, clip_duration)
+                event.stream_key, mp4_path, duration_sec=min(80, clip_duration)
             )
+            if not captured:
+                captured = await self.ring_buffers.extract_clip(
+                    event.handle.lower(), mp4_path, duration_sec=min(80, clip_duration)
+                )
 
         if not captured:
             logger.warning("Capture failed for %s; discarding spike.", event.stream_key)
@@ -367,7 +398,7 @@ class LiveClipperEngine:
                 if w:
                     st = w.detector.get_status()
                     st["live"] = True
-                    st["ring_buffer"] = r["platform"] == "kick" and r["handle"].lower() in active_ring
+                    st["ring_buffer"] = (r["handle"].lower() in active_ring or key in active_ring)
                     roster_status.append(st)
                 else:
                     roster_status.append({
@@ -389,7 +420,7 @@ class LiveClipperEngine:
                 st = w.detector.get_status()
                 st["live"] = True
                 st["auto_discovered"] = True
-                st["ring_buffer"] = w.platform == "kick" and w.handle.lower() in active_ring
+                st["ring_buffer"] = (w.handle.lower() in active_ring or key in active_ring)
                 roster_status.append(st)
 
         return {
@@ -405,6 +436,115 @@ class LiveClipperEngine:
             "queue_size": self.capture_queue.qsize(),
             "streamers": roster_status,
         }
+
+    async def force_test_clip(self, stream_key: str) -> Optional[Dict[str, Any]]:
+        """
+        Trigger an immediate 30s capture + 3-frame contact sheet + metadata write on any LIVE stream (bypassing AI rejection).
+        """
+        key = stream_key.lower().strip()
+        watcher = self.watchers.get(key)
+        if not watcher:
+            for k, w in self.watchers.items():
+                if k.lower() == key:
+                    watcher = w
+                    key = k
+                    break
+        if not watcher:
+            logger.warning("Force test clip requested for non-live stream: %s", stream_key)
+            return None
+
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession()
+
+        clip_id = f"{int(time.time())}_test_{watcher.platform}_{watcher.handle.lower()[:12]}_{uuid.uuid4().hex[:6]}"
+        mp4_path = settings.clips_dir / f"{clip_id}.mp4"
+        sheet_path = settings.clips_dir / f"{clip_id}.sheet.jpg"
+        chat_path = settings.clips_dir / f"{clip_id}.chat.json"
+        meta_path = settings.clips_dir / f"{clip_id}.meta.json"
+
+        clip_duration = 30
+        captured = False
+
+        if watcher.platform == "twitch":
+            # Extract from ring-buffer if active (faster, retains pre-buffered frames), else live HLS edge
+            if self.ring_buffers.get_buffer(key) or self.ring_buffers.get_buffer(watcher.handle.lower()):
+                captured = await self.ring_buffers.extract_clip(key, mp4_path, duration_sec=clip_duration)
+                if not captured:
+                    captured = await self.ring_buffers.extract_clip(
+                        watcher.handle.lower(), mp4_path, duration_sec=clip_duration
+                    )
+            if not captured:
+                captured = await self.twitch.capture_clip(
+                    self._session,
+                    watcher.handle,
+                    watcher.meta.get("broadcaster_id"),
+                    mp4_path,
+                    duration_sec=clip_duration,
+                )
+        elif watcher.platform == "kick":
+            captured = await self.ring_buffers.extract_clip(
+                watcher.handle.lower(), mp4_path, duration_sec=clip_duration
+            )
+        elif watcher.platform == "youtube":
+            video_id = watcher.meta.get("video_id")
+            if video_id:
+                captured = await self.youtube.capture_dvr_clip(video_id, mp4_path, duration_sec=clip_duration)
+
+        if not captured or not mp4_path.exists():
+            logger.warning("Force test clip capture failed for %s", stream_key)
+            mp4_path.unlink(missing_ok=True)
+            return None
+
+        await generate_contact_sheet(mp4_path, sheet_path)
+
+        recent_msgs = [
+            {
+                "t": round(m.timestamp - (time.time() - clip_duration), 2),
+                "ts": m.timestamp,
+                "user": m.username,
+                "text": m.text,
+                "color": m.color,
+                "badges": m.badges,
+            }
+            for m in list(watcher.detector._chat_history)[-50:]
+        ]
+        chat_path.write_text(json.dumps(recent_msgs, ensure_ascii=False), encoding="utf-8")
+
+        game_cfg = settings.profiles.get("games", {}).get(watcher.detector.game_id, {})
+        game_name = game_cfg.get("display_name", watcher.detector.game_id)
+        ch_cfg = settings.profiles.get("channels", {}).get(watcher.channel_id, {})
+        tags = list(dict.fromkeys(ch_cfg.get("default_tags", []) + game_cfg.get("extra_tags", [])))
+
+        metadata = {
+            "clip_id": clip_id,
+            "created_at": time.time(),
+            "streamer_name": watcher.streamer_name,
+            "platform": watcher.platform,
+            "handle": watcher.handle,
+            "channel_id": watcher.channel_id,
+            "channel_name": ch_cfg.get("name", watcher.channel_id),
+            "channel_handle": ch_cfg.get("handle", ""),
+            "game_id": watcher.detector.game_id,
+            "game_name": game_name,
+            "tags": tags,
+            "viral_score": 99,
+            "moment_type": "test_clip",
+            "moment_summary": f"Manual test clip captured for {watcher.streamer_name} ({watcher.platform.upper()}).",
+            "suggested_hook": f"TEST CLIP: {watcher.streamer_name.upper()} LIVE",
+            "spike_multiplier": 1.0,
+            "peak_mps": round(watcher.detector.current_mps, 2),
+            "baseline_mps": round(watcher.detector.baseline_mps, 2),
+            "unique_chatters": watcher.detector.unique_chatters_10s,
+            "peak_chat_sample": [m.text for m in list(watcher.detector._chat_history)[-12:] if not m.is_system],
+            "file_size_mb": round(mp4_path.stat().st_size / (1024 * 1024), 2),
+            "sheet_size_kb": round(sheet_path.stat().st_size / 1024, 1) if sheet_path.exists() else 0,
+            "starred": False,
+            "test_clip": True,
+        }
+        meta_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
+        enforce_storage_guard(settings.clips_dir, settings.max_vps_storage_mb)
+        logger.info("Force test clip completed for %s: %s (%.2f MB)", stream_key, clip_id, metadata["file_size_mb"])
+        return metadata
 
 
 async def run() -> None:

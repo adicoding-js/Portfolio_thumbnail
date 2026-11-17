@@ -31,7 +31,7 @@ class Settings:
     vps_port: int = int(os.getenv("VPS_PORT", "8765"))
     api_secret: str = os.getenv("API_SECRET", "pinkwire_nest_secret_2026")
     max_chat_watchers: int = int(os.getenv("MAX_CHAT_WATCHERS", "15"))
-    max_ring_buffers: int = int(os.getenv("MAX_RING_BUFFERS", "2"))
+    max_ring_buffers: int = int(os.getenv("MAX_RING_BUFFERS", "4"))
     max_vps_storage_mb: int = int(os.getenv("MAX_VPS_STORAGE_MB", "6000"))
     enable_audio_confirm: bool = os.getenv("ENABLE_AUDIO_CONFIRM", "false").lower() == "true"
 

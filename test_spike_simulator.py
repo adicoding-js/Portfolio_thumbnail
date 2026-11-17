@@ -33,33 +33,59 @@ def run_detector_simulation() -> SpikeEvent:
 
     t = 1_700_000_000.0
 
-    for sec in range(75):
+    calm_messages = [
+        "what car is that?",
+        "graphics look super clean today",
+        "driving physics are actually good",
+        "where on the map are we heading?",
+        "the radio station is pure vibes",
+        "nice sunset over vice city",
+        "anyone know the mission name?",
+        "chill stream tonight love this",
+    ]
+
+    # Baseline warm-up phase (35 seconds, past the 30.0s warmup threshold)
+    for sec in range(35):
         for i in range(2):
-            detector.ingest(ChatMessage(t + sec + i * 0.4, f"viewer_{sec}_{i}", "just vibing in vice city"))
+            msg = calm_messages[(sec * 2 + i) % len(calm_messages)]
+            detector.ingest(ChatMessage(t + sec + i * 0.4, f"viewer_{sec}_{i}", msg))
 
     assert len(captured_events) == 0, "Should not trigger during calm baseline"
 
-    t_noise = t + 76
+    # Noise / spam / command rejection phase
+    t_noise = t + 36
     for i in range(25):
         detector.ingest(ChatMessage(t_noise + i * 0.1, f"spammer_{i}", "!drops"))
         detector.ingest(ChatMessage(t_noise + i * 0.12, f"pasta_{i}", "FREE GTA6 BETA LINK IN BIO"))
         detector.ingest(ChatMessage(t_noise + i * 0.15, f"voter_{i}", "1"))
     assert len(captured_events) == 0, "Noise/commands/copypasta should not trigger a spike"
 
-    t_spike = t + 90
+    # Realistic varied hype spike phase
+    t_spike = t + 50
     hype_lines = [
-        "CLIP IT CLIP IT", "NO WAY LMAOOO 💀", "AINTNOWAY HE JUST DID THAT",
-        "PUT ME IN THE VID", "OMEGALUL", "WTF BRO WHAT 😭", "CLIP THAT RIGHT NOW",
-        "HOLY CLUTCH", "HI YOUTUBE", "CAUGHT IN 4K 💀",
+        "CLIP IT CLIP IT RIGHT NOW",
+        "NO WAY LMAOOO 💀💀",
+        "AINTNOWAY HE JUST CRASHED INTO THE TANK 😭",
+        "PUT ME IN THE VID YOUTUBE",
+        "OMEGALUL HOW DID HE SURVIVE THAT",
+        "WTF BRO WHAT JUST HAPPENED 😭",
+        "HOLY CLUTCH INSANE PLAY 🔥🔥",
+        "CAUGHT IN 4K 💀💀💀",
+        "BRO THE POLICE HELI BLEW UP",
+        "LETHIMCOOK THAT WAS CINEMA",
+        "NOWAYYY CHAT DID YOU SEE THAT",
+        "ACTUAL 10/10 MOMENT CLIP THAT",
     ]
     for sec in range(16):
         for i in range(10):
+            msg = hype_lines[(sec * 10 + i) % len(hype_lines)]
             detector.ingest(
-                ChatMessage(t_spike + sec + i * 0.08, f"chatter_{sec}_{i}", hype_lines[(sec + i) % len(hype_lines)])
+                ChatMessage(t_spike + sec + i * 0.08, f"hype_chatter_{sec}_{i}", msg)
             )
 
+    # 30-second cooldown loop verification
     t_cool = t_spike + 17
-    for sec in range(14):
+    for sec in range(30):
         detector.tick(t_cool + sec)
 
     assert len(captured_events) == 1, f"Expected 1 merged spike, got {len(captured_events)}"

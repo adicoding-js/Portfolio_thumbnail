@@ -15,18 +15,34 @@
     "gta_vi": {
       "display_name": "GTA VI",
       "twitch_category_name": "Grand Theft Auto VI",
-      "twitch_fallback_categories": ["Grand Theft Auto V", "Just Chatting"],
+      "twitch_fallback_categories": [
+        "Grand Theft Auto V",
+        "Just Chatting"
+      ],
       "kick_category_slug": "grand-theft-auto-vi",
-      "youtube_search_queries": ["GTA VI live", "GTA 6 livestream"],
-      "extra_tags": ["gta6", "gtavi", "rockstargames"]
+      "youtube_search_queries": [
+        "GTA VI live",
+        "GTA 6 livestream"
+      ],
+      "extra_tags": [
+        "gta6",
+        "gtavi",
+        "rockstargames"
+      ]
     },
     "just_chatting": {
       "display_name": "Just Chatting",
       "twitch_category_name": "Just Chatting",
       "twitch_fallback_categories": [],
       "kick_category_slug": "just-chatting",
-      "youtube_search_queries": ["IRL livestream"],
-      "extra_tags": ["irl", "justchatting", "livestream"]
+      "youtube_search_queries": [
+        "IRL livestream"
+      ],
+      "extra_tags": [
+        "irl",
+        "justchatting",
+        "livestream"
+      ]
     }
   },
   "channels": {
@@ -34,42 +50,150 @@
       "name": "PinkWire Official",
       "handle": "@PINKWIREOFFICIAL",
       "region": "US / Global",
-      "default_tags": ["gta6", "gtavi", "gaming", "streamerclips", "pinkwire"],
+      "default_tags": [
+        "gta6",
+        "gtavi",
+        "gaming",
+        "streamerclips",
+        "pinkwire"
+      ],
       "roster": [
-        { "name": "Kai Cenat", "platform": "twitch", "handle": "kaicenat", "priority": 1 },
-        { "name": "IShowSpeed", "platform": "youtube", "handle": "UCWsDFcIhY2DBi3GB5uykGXA", "priority": 1 },
-        { "name": "xQc", "platform": "kick", "handle": "xqc", "priority": 1 },
-        { "name": "xQc", "platform": "twitch", "handle": "xqc", "priority": 2 },
-        { "name": "CaseOh", "platform": "twitch", "handle": "caseoh_", "priority": 1 },
-        { "name": "Jynxzi", "platform": "twitch", "handle": "jynxzi", "priority": 2 }
+        {
+          "name": "Kai Cenat",
+          "platform": "twitch",
+          "handle": "kaicenat",
+          "priority": 1
+        },
+        {
+          "name": "IShowSpeed",
+          "platform": "youtube",
+          "handle": "UCWsDFcIhY2DBi3GB5uykGXA",
+          "priority": 1
+        },
+        {
+          "name": "xQc",
+          "platform": "kick",
+          "handle": "xqc",
+          "priority": 1
+        },
+        {
+          "name": "xQc",
+          "platform": "twitch",
+          "handle": "xqc",
+          "priority": 2
+        },
+        {
+          "name": "CaseOh",
+          "platform": "twitch",
+          "handle": "caseoh_",
+          "priority": 1
+        },
+        {
+          "name": "Jynxzi",
+          "platform": "twitch",
+          "handle": "jynxzi",
+          "priority": 2
+        }
       ]
     },
     "pinkwire_uk": {
       "name": "PinkWire UK",
       "handle": "@PinkwireUK",
       "region": "UK / EU Shift",
-      "default_tags": ["gta6", "gtavi", "ukgaming", "sidemen", "pinkwireuk"],
+      "default_tags": [
+        "gta6",
+        "gtavi",
+        "ukgaming",
+        "sidemen",
+        "pinkwireuk"
+      ],
       "roster": [
-        { "name": "AngryGinge", "platform": "twitch", "handle": "angryginge13", "priority": 1 },
-        { "name": "Miniminter", "platform": "twitch", "handle": "miniminter", "priority": 1 },
-        { "name": "Behzinga", "platform": "twitch", "handle": "behzinga", "priority": 2 },
-        { "name": "Sidemen", "platform": "youtube", "handle": "UCDogdKl7t7NHzQ95aEwkdMw", "priority": 1 },
-        { "name": "KSI", "platform": "youtube", "handle": "UCGmnsW623G1r-Chmo5RB4Yw", "priority": 1 },
-        { "name": "Fanum", "platform": "twitch", "handle": "fanum", "priority": 2 },
-        { "name": "Dantes", "platform": "twitch", "handle": "dantes", "priority": 2 }
+        {
+          "name": "AngryGinge",
+          "platform": "twitch",
+          "handle": "angryginge13",
+          "priority": 1
+        },
+        {
+          "name": "Miniminter",
+          "platform": "twitch",
+          "handle": "miniminter",
+          "priority": 1
+        },
+        {
+          "name": "Behzinga",
+          "platform": "twitch",
+          "handle": "behzinga",
+          "priority": 2
+        },
+        {
+          "name": "Sidemen",
+          "platform": "youtube",
+          "handle": "UCDogdKl7t7NHzQ95aEwkdMw",
+          "priority": 1
+        },
+        {
+          "name": "KSI",
+          "platform": "youtube",
+          "handle": "UCGmnsW623G1r-Chmo5RB4Yw",
+          "priority": 1
+        },
+        {
+          "name": "Fanum",
+          "platform": "twitch",
+          "handle": "fanum",
+          "priority": 2
+        },
+        {
+          "name": "Dantes",
+          "platform": "twitch",
+          "handle": "dantes",
+          "priority": 2
+        }
       ]
     },
     "pinkwire_au": {
       "name": "PinkWire AU",
       "handle": "@PinkwireAU",
       "region": "Oceania / Early Shift",
-      "default_tags": ["gta6", "gtavi", "lazarbeam", "augaming", "pinkwireau"],
+      "default_tags": [
+        "gta6",
+        "gtavi",
+        "lazarbeam",
+        "augaming",
+        "pinkwireau"
+      ],
       "roster": [
-        { "name": "LazarBeam", "platform": "youtube", "handle": "UCw1SQ6QOFyzAyyzLXb_N5PQ", "priority": 1 },
-        { "name": "Crayator", "platform": "twitch", "handle": "crayator", "priority": 2 },
-        { "name": "Loserfruit", "platform": "twitch", "handle": "loserfruit", "priority": 1 },
-        { "name": "Fresh", "platform": "twitch", "handle": "fresh", "priority": 2 },
-        { "name": "Muselk", "platform": "youtube", "handle": "UCd534c_ehOvrLVL2v7Nl61w", "priority": 2 }
+        {
+          "name": "LazarBeam",
+          "platform": "youtube",
+          "handle": "UCw1SQ6QOFyzAyyzLXb_N5PQ",
+          "priority": 1
+        },
+        {
+          "name": "Crayator",
+          "platform": "twitch",
+          "handle": "crayator",
+          "priority": 2
+        },
+        {
+          "name": "Loserfruit",
+          "platform": "twitch",
+          "handle": "loserfruit",
+          "priority": 1
+        },
+        {
+          "name": "Fresh",
+          "platform": "twitch",
+          "handle": "fresh",
+          "priority": 2
+        },
+        {
+          "name": "Muselk",
+          "platform": "youtube",
+          "handle": "UCd534c_ehOvrLVL2v7Nl61w",
+          "priority": 2
+        }
       ]
     }
   }

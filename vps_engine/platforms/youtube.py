@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -34,32 +35,46 @@ class YouTubePlatform:
             return self._cached_live.get(channel_id)
 
         self._last_check[channel_id] = now
-        if not self.api_key:
-            return None
 
-        url = "https://www.googleapis.com/youtube/v3/search"
-        params = {
-            "part": "snippet",
-            "channelId": channel_id,
-            "eventType": "live",
-            "type": "video",
-            "maxResults": "1",
-            "key": self.api_key,
+        url = f"https://www.youtube.com/channel/{channel_id}/live"
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+            "Accept-Language": "en-US,en;q=0.9",
         }
         try:
-            async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+            async with session.get(
+                url, headers=headers, timeout=aiohttp.ClientTimeout(total=15), allow_redirects=True
+            ) as resp:
                 if resp.status != 200:
-                    logger.warning("YouTube API HTTP %s for channel %s", resp.status, channel_id)
+                    logger.warning("YouTube live check HTTP %s for channel %s", resp.status, channel_id)
                     return self._cached_live.get(channel_id)
-                items = (await resp.json()).get("items", [])
-                if not items:
+                html = await resp.text()
+
+                if '"isLive":true' not in html and '"isLive": true' not in html:
                     self._cached_live[channel_id] = None
                     return None
-                item = items[0]
+
+                vid_match = re.search(r'"videoId":"([a-zA-Z0-9_-]{11})"', html)
+                if not vid_match:
+                    self._cached_live[channel_id] = None
+                    return None
+
+                video_id = vid_match.group(1)
+                title = "Live Stream"
+                title_match = re.search(r"<title>(.*?)(?: - YouTube)?</title>", html)
+                if title_match:
+                    clean_title = title_match.group(1).strip()
+                    if clean_title:
+                        title = clean_title
+
                 info = {
                     "channel_id": channel_id,
-                    "video_id": item["id"]["videoId"],
-                    "title": item["snippet"]["title"],
+                    "video_id": video_id,
+                    "title": title,
                     "started_at": time.time(),
                 }
                 self._cached_live[channel_id] = info

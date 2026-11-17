@@ -9,7 +9,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from .chat_renderer import render_chat_overlay
+try:
+    from .chat_renderer import render_chat_overlay
+except ImportError:
+    render_chat_overlay = None  # Optional on non-VPS environments without Pillow
 from .config import settings
 
 if TYPE_CHECKING:
@@ -30,6 +33,14 @@ class StarClipBody(BaseModel):
 
 class RenderChatBody(BaseModel):
     burn_in: bool = False
+
+
+class AddStreamerBody(BaseModel):
+    platform: str
+    handle: str
+    name: str = ""
+    channel_id: str = "pinkwire_official"
+    priority: int = 2
 
 
 def create_app(engine: "LiveClipperEngine") -> FastAPI:
@@ -72,6 +83,52 @@ def create_app(engine: "LiveClipperEngine") -> FastAPI:
         settings.profiles["active_game"] = body.game_id
         settings.save_profiles()
         return {"active_game": body.game_id}
+
+    @app.post("/api/roster/add", dependencies=[Depends(verify_secret)])
+    async def add_streamer(body: AddStreamerBody) -> Dict[str, Any]:
+        platform = body.platform.lower().strip()
+        if platform not in ("twitch", "kick", "youtube"):
+            raise HTTPException(status_code=400, detail="Invalid platform. Choose 'twitch', 'kick', or 'youtube'")
+        handle = body.handle.strip()
+        if not handle:
+            raise HTTPException(status_code=400, detail="Handle is required")
+        name = body.name.strip() or handle
+        channel_id = body.channel_id.strip() or "pinkwire_official"
+
+        channels = settings.profiles.setdefault("channels", {})
+        if channel_id not in channels:
+            channels[channel_id] = {
+                "name": channel_id.replace("_", " ").title(),
+                "handle": f"@{channel_id.upper()}",
+                "region": "Custom",
+                "default_tags": ["gaming", "streamerclips"],
+                "roster": [],
+            }
+        roster = channels[channel_id].setdefault("roster", [])
+
+        for r in roster:
+            if r.get("platform", "").lower() == platform and r.get("handle", "").lower() == handle.lower():
+                return {"status": "exists", "streamer": r, "message": f"Streamer {handle} already in {channel_id}"}
+
+        entry = {
+            "name": name,
+            "platform": platform,
+            "handle": handle,
+            "priority": max(1, min(3, body.priority)),
+        }
+        roster.append(entry)
+        settings.save_profiles()
+        return {"status": "added", "streamer": entry}
+
+    @app.post("/api/test-clip/{stream_key:path}", dependencies=[Depends(verify_secret)])
+    async def trigger_test_clip(stream_key: str) -> Dict[str, Any]:
+        result = await engine.force_test_clip(stream_key)
+        if not result:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Could not capture test clip for '{stream_key}'. Ensure stream is currently LIVE."
+            )
+        return result
 
     @app.get("/api/clips", dependencies=[Depends(verify_secret)])
     async def list_clips(
@@ -134,6 +191,8 @@ def create_app(engine: "LiveClipperEngine") -> FastAPI:
 
     @app.post("/api/clips/{clip_id}/render-chat", dependencies=[Depends(verify_secret)])
     async def render_chat(clip_id: str, body: RenderChatBody) -> Dict[str, Any]:
+        if render_chat_overlay is None:
+            raise HTTPException(status_code=500, detail="Pillow / chat renderer not available on this host")
         chat_path = settings.clips_dir / f"{clip_id}.chat.json"
         mp4_path = settings.clips_dir / f"{clip_id}.mp4"
         if not chat_path.exists():

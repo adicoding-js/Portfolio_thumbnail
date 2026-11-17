@@ -128,7 +128,12 @@ class TwitchPlatform:
                             stdout=asyncio.subprocess.DEVNULL,
                             stderr=asyncio.subprocess.PIPE,
                         )
-                        await proc.communicate()
+                        _, stderr = await proc.communicate()
+                        if proc.returncode != 0:
+                            logger.error(
+                                "yt-dlp failed for %s (exit %d): %s",
+                                clip_url, proc.returncode, stderr.decode(errors="ignore")
+                            )
                         if output_mp4.exists() and output_mp4.stat().st_size > 10_000:
                             logger.info("Captured Twitch Helix clip %s for %s", clip_id, handle)
                             return True
@@ -137,7 +142,7 @@ class TwitchPlatform:
 
         clip_len = min(60, max(20, duration_sec))
         cmd = (
-            f"streamlink --stdout 'https://twitch.tv/{handle}' 720p60,720p,best | "
+            f"streamlink --twitch-disable-ads --stdout 'https://twitch.tv/{handle}' 480p,720p60,720p,best | "
             f"ffmpeg -y -hide_banner -loglevel error -i pipe:0 -t {clip_len} "
             f"-c copy -movflags +faststart '{output_mp4}'"
         )
@@ -146,7 +151,12 @@ class TwitchPlatform:
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
         )
-        await proc.communicate()
+        _, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            logger.error(
+                "Twitch HLS edge streamlink/ffmpeg capture failed for %s (exit %d): %s",
+                handle, proc.returncode, stderr.decode(errors="ignore")
+            )
         return output_mp4.exists() and output_mp4.stat().st_size > 10_000
 
     async def listen_chat(

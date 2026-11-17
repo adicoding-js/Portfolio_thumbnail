@@ -51,7 +51,7 @@
         <div id="statWatchers" class="text-xl font-bold mt-0.5">—</div>
       </div>
       <div class="bg-card border border-zinc-800 rounded-lg p-3">
-        <div class="text-xs text-zinc-400">Kick Ring-Buffers</div>
+        <div class="text-xs text-zinc-400">Rolling Ring-Buffers</div>
         <div id="statRing" class="text-xl font-bold mt-0.5">—</div>
       </div>
       <div class="bg-card border border-zinc-800 rounded-lg p-3">
@@ -73,6 +73,42 @@
       </div>
     </section>
 
+    <!-- Add Streamer UI Bar -->
+    <section class="bg-card border border-zinc-800 rounded-xl p-3.5">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-bold uppercase tracking-wider text-pinkwire">Add Streamer</span>
+          <span class="text-xs text-zinc-400 hidden sm:inline">— Add Twitch, Kick, or YouTube to Roster</span>
+        </div>
+        <div class="flex flex-wrap items-center gap-2 text-xs flex-1 max-w-4xl justify-end">
+          <select id="newStreamerPlatform" class="bg-zinc-900 border border-zinc-700 rounded px-2.5 py-1.5 text-zinc-200">
+            <option value="twitch">Twitch</option>
+            <option value="kick">Kick</option>
+            <option value="youtube">YouTube</option>
+          </select>
+          <input id="newStreamerHandle" type="text" placeholder="Handle (e.g. kaicenat or channel ID)"
+            class="bg-zinc-900 border border-zinc-700 rounded px-2.5 py-1.5 flex-1 min-w-[140px] text-zinc-200 focus:border-pinkwire outline-none" />
+          <input id="newStreamerName" type="text" placeholder="Display Name (opt)"
+            class="bg-zinc-900 border border-zinc-700 rounded px-2.5 py-1.5 w-32 text-zinc-200 focus:border-pinkwire outline-none" />
+          <select id="newStreamerChannel" class="bg-zinc-900 border border-zinc-700 rounded px-2.5 py-1.5 text-zinc-200">
+            <option value="pinkwire_official">PinkWire Official (US)</option>
+            <option value="pinkwire_uk">PinkWire UK</option>
+            <option value="pinkwire_au">PinkWire AU</option>
+          </select>
+          <select id="newStreamerPriority" class="bg-zinc-900 border border-zinc-700 rounded px-2.5 py-1.5 text-zinc-200">
+            <option value="1">Prio 1 (High)</option>
+            <option value="2" selected>Prio 2 (Normal)</option>
+            <option value="3">Prio 3 (Low)</option>
+          </select>
+          <button id="addStreamerBtn" onclick="addStreamer()"
+            class="bg-pinkwire hover:opacity-90 text-white font-semibold px-3 py-1.5 rounded transition">
+            + Add Streamer
+          </button>
+        </div>
+      </div>
+      <div id="addStreamerStatus" class="text-xs mt-1.5 text-emerald-400 hidden"></div>
+    </section>
+
     <section class="bg-card border border-zinc-800 rounded-xl overflow-hidden">
       <div class="px-4 py-3 border-b border-zinc-800 flex items-center justify-between">
         <h2 class="font-semibold text-sm uppercase tracking-wider text-zinc-300">Live Watchdog Monitor</h2>
@@ -88,6 +124,7 @@
               <th class="px-4 py-2.5">Status</th>
               <th class="px-4 py-2.5">Chat Velocity (mps)</th>
               <th class="px-4 py-2.5">Ring Buffer</th>
+              <th class="px-4 py-2.5 text-right">Actions</th>
             </tr>
           </thead>
           <tbody id="watchdogBody" class="divide-y divide-zinc-800/70"></tbody>
@@ -210,6 +247,11 @@
             ${s.live ? `<span class="text-zinc-100">${s.current_mps}</span> <span class="text-zinc-500">/ base ${s.baseline_mps}</span>` : '—'}
           </td>
           <td class="px-4 py-2 text-xs">${s.ring_buffer ? '<span class="text-pinkwire font-semibold">720p Active</span>' : '<span class="text-zinc-600">—</span>'}</td>
+          <td class="px-4 py-2 text-right">
+            ${s.live
+              ? `<button onclick="forceTestClip('${s.stream_key}', this)" class="bg-amber-500/20 hover:bg-amber-500/40 text-amber-300 border border-amber-500/40 text-xs px-2.5 py-1 rounded font-medium transition whitespace-nowrap">⚡ Test Clip</button>`
+              : '<span class="text-zinc-600 text-xs">—</span>'}
+          </td>
         </tr>
       `).join('');
     }
@@ -344,6 +386,73 @@
         headers: apiHeaders(),
         body: JSON.stringify({ game_id }),
       });
+    }
+
+    async function addStreamer() {
+      const platform = document.getElementById('newStreamerPlatform').value;
+      const handle = document.getElementById('newStreamerHandle').value.trim();
+      const name = document.getElementById('newStreamerName').value.trim();
+      const channel_id = document.getElementById('newStreamerChannel').value;
+      const priority = parseInt(document.getElementById('newStreamerPriority').value) || 2;
+      const btn = document.getElementById('addStreamerBtn');
+      const statusDiv = document.getElementById('addStreamerStatus');
+
+      if (!handle) {
+        alert('Please enter a streamer handle.');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Adding...';
+      try {
+        const res = await fetch(`${vpsUrl}/api/roster/add`, {
+          method: 'POST',
+          headers: apiHeaders(),
+          body: JSON.stringify({ platform, handle, name, channel_id, priority }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Failed to add streamer');
+        statusDiv.className = 'text-xs mt-1.5 text-emerald-400';
+        statusDiv.textContent = `✓ Added ${data.streamer?.name || handle} (${platform}) to ${channel_id}`;
+        statusDiv.classList.remove('hidden');
+        document.getElementById('newStreamerHandle').value = '';
+        document.getElementById('newStreamerName').value = '';
+        setTimeout(() => statusDiv.classList.add('hidden'), 4000);
+      } catch (err) {
+        statusDiv.className = 'text-xs mt-1.5 text-red-400';
+        statusDiv.textContent = `Error: ${err.message}`;
+        statusDiv.classList.remove('hidden');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '+ Add Streamer';
+      }
+    }
+
+    async function forceTestClip(streamKey, btn) {
+      if (!confirm(`Trigger an immediate 30s test clip for ${streamKey}?`)) return;
+      btn.disabled = true;
+      const oldHtml = btn.innerHTML;
+      btn.innerHTML = '⚡ Capturing 30s...';
+      try {
+        const res = await fetch(`${vpsUrl}/api/test-clip/${encodeURIComponent(streamKey)}`, {
+          method: 'POST',
+          headers: apiHeaders(),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Test clip failed');
+        btn.innerHTML = '✓ Caught!';
+        btn.className = 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs px-2.5 py-1 rounded font-medium whitespace-nowrap';
+        await loadClips();
+      } catch (err) {
+        alert(`Test clip failed: ${err.message}`);
+        btn.innerHTML = oldHtml;
+      } finally {
+        setTimeout(() => {
+          btn.innerHTML = oldHtml;
+          btn.disabled = false;
+          btn.className = 'bg-amber-500/20 hover:bg-amber-500/40 text-amber-300 border border-amber-500/40 text-xs px-2.5 py-1 rounded font-medium transition whitespace-nowrap';
+        }, 3000);
+      }
     }
 
     init();
