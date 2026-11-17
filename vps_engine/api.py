@@ -165,7 +165,7 @@ def create_app(engine: "LiveClipperEngine") -> FastAPI:
 
     @app.delete("/api/clips/{clip_id}", dependencies=[Depends(verify_secret)])
     async def delete_clip(clip_id: str) -> Dict[str, str]:
-        for suffix in (".mp4", ".meta.json", ".chat.json", ".sheet.jpg", ".chat.webm", ".burned.mp4"):
+        for suffix in (".mp4", ".full.mp4", ".meta.json", ".chat.json", ".sheet.jpg", ".chat.webm", ".burned.mp4"):
             p = settings.clips_dir / f"{clip_id}{suffix}"
             if p.exists():
                 p.unlink(missing_ok=True)
@@ -175,6 +175,7 @@ def create_app(engine: "LiveClipperEngine") -> FastAPI:
     async def download_clip_file(clip_id: str, kind: str) -> FileResponse:
         mapping = {
             "mp4": (f"{clip_id}.mp4", "video/mp4"),
+            "full": (f"{clip_id}.full.mp4", "video/mp4"),
             "meta": (f"{clip_id}.meta.json", "application/json"),
             "chat": (f"{clip_id}.chat.json", "application/json"),
             "sheet": (f"{clip_id}.sheet.jpg", "image/jpeg"),

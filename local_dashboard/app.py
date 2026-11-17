@@ -26,6 +26,7 @@ app = FastAPI(title="PinkWire LiveClipper Local Dashboard")
 class DownloadRequest(BaseModel):
     vps_url: str = DEFAULT_VPS_URL
     api_secret: str = DEFAULT_API_SECRET
+    download_full: bool = False
 
 
 class RenderRequest(BaseModel):
@@ -45,7 +46,7 @@ def _enforce_local_cap() -> None:
         if total_mb() <= MAX_LOCAL_STORAGE_MB * 0.85:
             break
         stem = mp4.stem
-        for ext in (".mp4", ".meta.json", ".chat.json", ".chat.webm", ".burned.mp4"):
+        for ext in (".mp4", ".full.mp4", ".meta.json", ".chat.json", ".chat.webm", ".burned.mp4"):
             (DOWNLOADS_DIR / f"{stem}{ext}").unlink(missing_ok=True)
 
 
@@ -88,8 +89,12 @@ async def download_clip_bundle(clip_id: str, req: DownloadRequest) -> Dict[str, 
     headers = {"X-API-Secret": req.api_secret}
     saved = []
 
+    kinds = [("mp4", ".mp4"), ("meta", ".meta.json"), ("chat", ".chat.json")]
+    if req.download_full:
+        kinds.append(("full", ".full.mp4"))
+
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=300)) as session:
-        for kind, suffix in (("mp4", ".mp4"), ("meta", ".meta.json"), ("chat", ".chat.json")):
+        for kind, suffix in kinds:
             url = f"{base}/api/clips/{clip_id}/file/{kind}"
             async with session.get(url, headers=headers) as resp:
                 if resp.status != 200:

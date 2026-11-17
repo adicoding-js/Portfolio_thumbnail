@@ -13,7 +13,11 @@ import uvicorn
 
 from .ai_triage import AITriageEngine
 from .api import create_app
-from .config import settings
+try:
+    from .chat_renderer import render_chat_overlay
+except ImportError:
+    render_chat_overlay = None
+from .config import resolve_bin, settings
 from .detector import SpikeDetector, SpikeEvent
 from .platforms.kick import KickPlatform
 from .platforms.twitch import TwitchPlatform
@@ -281,10 +285,13 @@ class LiveClipperEngine:
     async def _process_spike(self, event: SpikeEvent) -> None:
         assert self._session is not None
         clip_id = f"{int(time.time())}_{event.platform}_{event.handle.lower()[:12]}_{uuid.uuid4().hex[:6]}"
+        full_mp4_path = settings.clips_dir / f"{clip_id}.full.mp4"
         mp4_path = settings.clips_dir / f"{clip_id}.mp4"
+        audio_path = settings.clips_dir / f"{clip_id}.tmp.mp3"
         sheet_path = settings.clips_dir / f"{clip_id}.sheet.jpg"
         chat_path = settings.clips_dir / f"{clip_id}.chat.json"
         meta_path = settings.clips_dir / f"{clip_id}.meta.json"
+        burned_path = settings.clips_dir / f"{clip_id}.burned.mp4"
 
         game_cfg = settings.profiles.get("games", {}).get(event.game_id, {})
         game_name = game_cfg.get("display_name", event.game_id)
@@ -307,17 +314,18 @@ class LiveClipperEngine:
         watcher = self.watchers.get(event.stream_key)
         meta_info = watcher.meta if watcher else {}
         clip_duration = int((event.spike_end - event.spike_start) + event.pre_buffer_sec + event.post_buffer_sec)
+        clip_duration = max(60, min(600, clip_duration))
 
         captured = False
         if event.platform == "twitch":
             # Check if rolling ring-buffer is active for this twitch stream (captures up to 10 min buildup)
             if self.ring_buffers.get_buffer(event.stream_key) or self.ring_buffers.get_buffer(event.handle.lower()):
                 captured = await self.ring_buffers.extract_clip(
-                    event.stream_key, mp4_path, duration_sec=min(600, clip_duration)
+                    event.stream_key, full_mp4_path, duration_sec=clip_duration
                 )
                 if not captured:
                     captured = await self.ring_buffers.extract_clip(
-                        event.handle.lower(), mp4_path, duration_sec=min(600, clip_duration)
+                        event.handle.lower(), full_mp4_path, duration_sec=clip_duration
                     )
             # Fall back to live HLS edge capture if stream wasn't buffered
             if not captured:
@@ -325,34 +333,110 @@ class LiveClipperEngine:
                     self._session,
                     event.handle,
                     meta_info.get("broadcaster_id"),
-                    mp4_path,
+                    full_mp4_path,
                     duration_sec=clip_duration,
                 )
         elif event.platform == "youtube":
             video_id = meta_info.get("video_id")
             if video_id:
-                captured = await self.youtube.capture_dvr_clip(video_id, mp4_path, duration_sec=clip_duration)
+                captured = await self.youtube.capture_dvr_clip(video_id, full_mp4_path, duration_sec=clip_duration)
         elif event.platform == "kick":
             captured = await self.ring_buffers.extract_clip(
-                event.stream_key, mp4_path, duration_sec=min(600, clip_duration)
+                event.stream_key, full_mp4_path, duration_sec=clip_duration
             )
             if not captured:
                 captured = await self.ring_buffers.extract_clip(
-                    event.handle.lower(), mp4_path, duration_sec=min(600, clip_duration)
+                    event.handle.lower(), full_mp4_path, duration_sec=clip_duration
                 )
 
-        if not captured:
+        if not captured or not full_mp4_path.exists() or full_mp4_path.stat().st_size < 10_000:
             logger.warning("Capture failed for %s; discarding spike.", event.stream_key)
-            mp4_path.unlink(missing_ok=True)
+            full_mp4_path.unlink(missing_ok=True)
             return
 
+        # 1. Extract lightweight mono 16kHz MP3 for Gemini multimodal audio analysis
+        proc = await asyncio.create_subprocess_exec(
+            resolve_bin("ffmpeg"), "-y", "-hide_banner", "-loglevel", "error",
+            "-i", str(full_mp4_path),
+            "-vn", "-ar", "16000", "-ac", "1", "-b:a", "32k",
+            str(audio_path),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await proc.communicate()
+
+        # 2. Compute spike offset within raw 10m capture
+        spike_offset = float(event.pre_buffer_sec)
+
+        # 3. Multimodal Audio Analysis with Gemini via Hack Club Proxy
+        narrative = await self.ai_triage.analyze_narrative_context(
+            session=self._session,
+            audio_path=audio_path,
+            streamer_name=event.streamer_name,
+            game_name=game_name,
+            spike_offset_sec=spike_offset,
+            total_audio_duration_sec=float(clip_duration),
+            peak_messages=event.peak_messages,
+        )
+        audio_path.unlink(missing_ok=True)
+
+        # 4. Smart narrative trim for the viral short
+        setup_start = max(0.0, narrative.get("setup_start_sec", max(0.0, spike_offset - 60.0)))
+        reaction_end = max(setup_start + 30.0, min(float(clip_duration), narrative.get("reaction_end_sec", spike_offset + 35.0)))
+        trim_dur = max(30.0, min(150.0, reaction_end - setup_start))
+
+        proc = await asyncio.create_subprocess_exec(
+            resolve_bin("ffmpeg"), "-y", "-hide_banner", "-loglevel", "error",
+            "-ss", str(setup_start), "-t", str(trim_dur),
+            "-i", str(full_mp4_path),
+            "-c", "copy", "-movflags", "+faststart",
+            str(mp4_path),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await proc.communicate()
+
+        # Fallback if fast copy failed
+        if not mp4_path.exists() or mp4_path.stat().st_size < 10_000:
+            import shutil
+            shutil.copyfile(full_mp4_path, mp4_path)
+            trim_dur = float(clip_duration)
+            setup_start = 0.0
+
+        # 5. Generate contact sheet from trimmed viral video
         await generate_contact_sheet(mp4_path, sheet_path)
 
-        chat_path.write_text(json.dumps(event.chat_messages, ensure_ascii=False), encoding="utf-8")
+        # 6. Re-time chat messages to start at 0s at the trimmed clip's start
+        clip_start_epoch = (event.spike_start - event.pre_buffer_sec) + setup_start
+        aligned_chat = []
+        for m in event.chat_messages:
+            ts = m.get("timestamp", m.get("ts", 0))
+            offset = round(ts - clip_start_epoch, 2)
+            if -5.0 <= offset <= (trim_dur + 10.0):
+                c_copy = dict(m)
+                c_copy["t"] = max(0.0, offset)
+                aligned_chat.append(c_copy)
 
+        chat_path.write_text(json.dumps(aligned_chat, ensure_ascii=False), encoding="utf-8")
+
+        # 7. Auto render synced chat overlay if renderer is available
+        if render_chat_overlay:
+            try:
+                await asyncio.to_thread(
+                    render_chat_overlay,
+                    chat_path=chat_path,
+                    mp4_path=mp4_path,
+                    output_path=burned_path,
+                    burn_in=True,
+                )
+            except Exception as exc:
+                logger.warning("Auto chat burn-in skipped for %s: %s", clip_id, exc)
+
+        # 8. Dual output metadata
         ch_cfg = settings.profiles.get("channels", {}).get(event.channel_id, {})
         tags = list(dict.fromkeys(ch_cfg.get("default_tags", []) + game_cfg.get("extra_tags", [])))
 
+        final_score = max(triage["viral_score"], narrative.get("viral_score", 0))
         metadata = {
             "clip_id": clip_id,
             "created_at": time.time(),
@@ -364,25 +448,38 @@ class LiveClipperEngine:
             "channel_handle": ch_cfg.get("handle", ""),
             "game_id": event.game_id,
             "game_name": game_name,
-            "duration_sec": clip_duration,
+            "has_full_source": True,
+            "full_duration_sec": clip_duration,
+            "trimmed_duration_sec": round(trim_dur, 1),
+            "duration_sec": round(trim_dur, 1),
+            "setup_start_sec": round(setup_start, 1),
+            "climax_sec": round(narrative.get("climax_sec", spike_offset), 1),
+            "reaction_end_sec": round(reaction_end, 1),
             "tags": tags,
-            "viral_score": triage["viral_score"],
-            "moment_type": triage["moment_type"],
-            "moment_summary": triage["moment_summary"],
-            "suggested_hook": triage["suggested_hook"],
+            "viral_score": final_score,
+            "moment_type": narrative.get("moment_type", triage.get("moment_type", "hype")),
+            "moment_summary": narrative.get("context_summary", triage.get("moment_summary", "")),
+            "spoken_hook": narrative.get("spoken_hook", triage.get("suggested_hook", "")),
+            "suggested_hook": narrative.get("spoken_hook", triage.get("suggested_hook", "")),
             "spike_multiplier": event.spike_multiplier,
             "peak_mps": event.peak_mps,
             "baseline_mps": event.baseline_mps,
             "unique_chatters": event.unique_chatters,
             "peak_chat_sample": event.peak_messages[:12],
             "file_size_mb": round(mp4_path.stat().st_size / (1024 * 1024), 2),
+            "full_file_size_mb": round(full_mp4_path.stat().st_size / (1024 * 1024), 2),
             "sheet_size_kb": round(sheet_path.stat().st_size / 1024, 1) if sheet_path.exists() else 0,
+            "burned_size_mb": round(burned_path.stat().st_size / (1024 * 1024), 2) if burned_path.exists() else 0,
             "starred": False,
         }
         meta_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
 
         enforce_storage_guard(settings.clips_dir, settings.max_vps_storage_mb)
-        logger.info("Saved clip %s (score=%d, %.2f MB)", clip_id, metadata["viral_score"], metadata["file_size_mb"])
+        logger.info(
+            "Saved dual-output clip %s: full=%ds (%.1fMB), viral_edit=%.1fs (%.1fMB, score=%d, hook='%s')",
+            clip_id, clip_duration, metadata["full_file_size_mb"],
+            trim_dur, metadata["file_size_mb"], final_score, metadata["spoken_hook"]
+        )
 
     def get_watchdog_status(self) -> Dict[str, Any]:
         used_bytes = sum(p.stat().st_size for p in settings.clips_dir.glob("*") if p.is_file())
@@ -458,10 +555,13 @@ class LiveClipperEngine:
             self._session = aiohttp.ClientSession()
 
         clip_id = f"{int(time.time())}_test_{watcher.platform}_{watcher.handle.lower()[:12]}_{uuid.uuid4().hex[:6]}"
+        full_mp4_path = settings.clips_dir / f"{clip_id}.full.mp4"
         mp4_path = settings.clips_dir / f"{clip_id}.mp4"
+        audio_path = settings.clips_dir / f"{clip_id}.tmp.mp3"
         sheet_path = settings.clips_dir / f"{clip_id}.sheet.jpg"
         chat_path = settings.clips_dir / f"{clip_id}.chat.json"
         meta_path = settings.clips_dir / f"{clip_id}.meta.json"
+        burned_path = settings.clips_dir / f"{clip_id}.burned.mp4"
 
         clip_duration = 120
         captured = False
@@ -469,38 +569,85 @@ class LiveClipperEngine:
         if watcher.platform == "twitch":
             # Extract from ring-buffer if active (faster, retains pre-buffered frames), else live HLS edge
             if self.ring_buffers.get_buffer(key) or self.ring_buffers.get_buffer(watcher.handle.lower()):
-                captured = await self.ring_buffers.extract_clip(key, mp4_path, duration_sec=clip_duration)
+                captured = await self.ring_buffers.extract_clip(key, full_mp4_path, duration_sec=clip_duration)
                 if not captured:
                     captured = await self.ring_buffers.extract_clip(
-                        watcher.handle.lower(), mp4_path, duration_sec=clip_duration
+                        watcher.handle.lower(), full_mp4_path, duration_sec=clip_duration
                     )
             if not captured:
                 captured = await self.twitch.capture_clip(
                     self._session,
                     watcher.handle,
                     watcher.meta.get("broadcaster_id"),
-                    mp4_path,
+                    full_mp4_path,
                     duration_sec=clip_duration,
                 )
         elif watcher.platform == "kick":
             captured = await self.ring_buffers.extract_clip(
-                watcher.handle.lower(), mp4_path, duration_sec=clip_duration
+                watcher.handle.lower(), full_mp4_path, duration_sec=clip_duration
             )
         elif watcher.platform == "youtube":
             video_id = watcher.meta.get("video_id")
             if video_id:
-                captured = await self.youtube.capture_dvr_clip(video_id, mp4_path, duration_sec=clip_duration)
+                captured = await self.youtube.capture_dvr_clip(video_id, full_mp4_path, duration_sec=clip_duration)
 
-        if not captured or not mp4_path.exists():
+        if not captured or not full_mp4_path.exists():
             logger.warning("Force test clip capture failed for %s", stream_key)
-            mp4_path.unlink(missing_ok=True)
+            full_mp4_path.unlink(missing_ok=True)
             return None
+
+        # 1. Extract audio snippet for narrative context analysis
+        proc = await asyncio.create_subprocess_exec(
+            resolve_bin("ffmpeg"), "-y", "-hide_banner", "-loglevel", "error",
+            "-i", str(full_mp4_path),
+            "-vn", "-ar", "16000", "-ac", "1", "-b:a", "32k",
+            str(audio_path),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await proc.communicate()
+
+        # 2. Analyze narrative context
+        recent_texts = [m.text for m in list(watcher.detector._chat_history)[-15:] if not m.is_system]
+        narrative = await self.ai_triage.analyze_narrative_context(
+            session=self._session,
+            audio_path=audio_path,
+            streamer_name=watcher.streamer_name,
+            game_name=watcher.detector.game_id,
+            spike_offset_sec=float(clip_duration * 0.75),
+            total_audio_duration_sec=float(clip_duration),
+            peak_messages=recent_texts,
+        )
+        audio_path.unlink(missing_ok=True)
+
+        setup_start = max(0.0, narrative.get("setup_start_sec", 0.0))
+        reaction_end = max(setup_start + 30.0, min(float(clip_duration), narrative.get("reaction_end_sec", float(clip_duration))))
+        trim_dur = max(30.0, min(120.0, reaction_end - setup_start))
+
+        # 3. Trim viral short
+        proc = await asyncio.create_subprocess_exec(
+            resolve_bin("ffmpeg"), "-y", "-hide_banner", "-loglevel", "error",
+            "-ss", str(setup_start), "-t", str(trim_dur),
+            "-i", str(full_mp4_path),
+            "-c", "copy", "-movflags", "+faststart",
+            str(mp4_path),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await proc.communicate()
+
+        if not mp4_path.exists() or mp4_path.stat().st_size < 10_000:
+            import shutil
+            shutil.copyfile(full_mp4_path, mp4_path)
+            trim_dur = float(clip_duration)
+            setup_start = 0.0
 
         await generate_contact_sheet(mp4_path, sheet_path)
 
+        clip_start_epoch = (time.time() - clip_duration) + setup_start
         recent_msgs = [
             {
-                "t": round(m.timestamp - (time.time() - clip_duration), 2),
+                "t": max(0.0, round(m.timestamp - clip_start_epoch, 2)),
                 "ts": m.timestamp,
                 "user": m.username,
                 "text": m.text,
@@ -508,8 +655,21 @@ class LiveClipperEngine:
                 "badges": m.badges,
             }
             for m in list(watcher.detector._chat_history)[-50:]
+            if -5.0 <= (m.timestamp - clip_start_epoch) <= (trim_dur + 10.0)
         ]
         chat_path.write_text(json.dumps(recent_msgs, ensure_ascii=False), encoding="utf-8")
+
+        if render_chat_overlay:
+            try:
+                await asyncio.to_thread(
+                    render_chat_overlay,
+                    chat_path=chat_path,
+                    mp4_path=mp4_path,
+                    output_path=burned_path,
+                    burn_in=True,
+                )
+            except Exception as exc:
+                logger.warning("Auto chat burn-in skipped for test clip %s: %s", clip_id, exc)
 
         game_cfg = settings.profiles.get("games", {}).get(watcher.detector.game_id, {})
         game_name = game_cfg.get("display_name", watcher.detector.game_id)
@@ -527,19 +687,27 @@ class LiveClipperEngine:
             "channel_handle": ch_cfg.get("handle", ""),
             "game_id": watcher.detector.game_id,
             "game_name": game_name,
-            "duration_sec": clip_duration,
+            "has_full_source": True,
+            "full_duration_sec": clip_duration,
+            "trimmed_duration_sec": round(trim_dur, 1),
+            "duration_sec": round(trim_dur, 1),
+            "setup_start_sec": round(setup_start, 1),
+            "reaction_end_sec": round(reaction_end, 1),
             "tags": tags,
-            "viral_score": 99,
-            "moment_type": "test_clip",
-            "moment_summary": f"Manual test clip captured for {watcher.streamer_name} ({watcher.platform.upper()}).",
-            "suggested_hook": f"TEST CLIP: {watcher.streamer_name.upper()} LIVE",
+            "viral_score": narrative.get("viral_score", 95),
+            "moment_type": narrative.get("moment_type", "test_clip"),
+            "moment_summary": narrative.get("context_summary", f"Manual test clip captured for {watcher.streamer_name}."),
+            "spoken_hook": narrative.get("spoken_hook", f"TEST CLIP: {watcher.streamer_name.upper()} LIVE"),
+            "suggested_hook": narrative.get("spoken_hook", f"TEST CLIP: {watcher.streamer_name.upper()} LIVE"),
             "spike_multiplier": 1.0,
             "peak_mps": round(watcher.detector.current_mps, 2),
             "baseline_mps": round(watcher.detector.baseline_mps, 2),
             "unique_chatters": watcher.detector.unique_chatters_10s,
             "peak_chat_sample": [m.text for m in list(watcher.detector._chat_history)[-12:] if not m.is_system],
             "file_size_mb": round(mp4_path.stat().st_size / (1024 * 1024), 2),
+            "full_file_size_mb": round(full_mp4_path.stat().st_size / (1024 * 1024), 2),
             "sheet_size_kb": round(sheet_path.stat().st_size / 1024, 1) if sheet_path.exists() else 0,
+            "burned_size_mb": round(burned_path.stat().st_size / (1024 * 1024), 2) if burned_path.exists() else 0,
             "starred": False,
             "test_clip": True,
         }

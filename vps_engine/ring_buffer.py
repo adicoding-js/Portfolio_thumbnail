@@ -330,7 +330,7 @@ def enforce_storage_guard(clips_dir: Path, max_mb: int) -> int:
         if dir_size_mb() <= target_mb:
             break
         clip_id = meta.get("clip_id") or meta_path.name.replace(".meta.json", "")
-        for suffix in (".mp4", ".meta.json", ".chat.json", ".sheet.jpg", ".chat.webm", ".burned.mp4"):
+        for suffix in (".mp4", ".full.mp4", ".meta.json", ".chat.json", ".sheet.jpg", ".chat.webm", ".burned.mp4"):
             target = clips_dir / f"{clip_id}{suffix}"
             if target.exists():
                 target.unlink(missing_ok=True)
@@ -348,7 +348,7 @@ def enforce_storage_guard(clips_dir: Path, max_mb: int) -> int:
             if dir_size_mb() <= target_mb:
                 break
             clip_id = meta.get("clip_id") or meta_path.name.replace(".meta.json", "")
-            for suffix in (".mp4", ".meta.json", ".chat.json", ".sheet.jpg", ".chat.webm", ".burned.mp4"):
+            for suffix in (".mp4", ".full.mp4", ".meta.json", ".chat.json", ".sheet.jpg", ".chat.webm", ".burned.mp4"):
                 target = clips_dir / f"{clip_id}{suffix}"
                 if target.exists():
                     target.unlink(missing_ok=True)

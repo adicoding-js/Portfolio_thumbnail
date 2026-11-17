@@ -294,24 +294,29 @@
                       ${c.starred ? '★ Starred' : '☆ Star'}
                     </button>
                   </div>
-                  <h3 class="font-bold text-zinc-100 mt-1">${c.suggested_hook}</h3>
+                  <div class="flex items-center gap-2 mt-1">
+                    ${c.has_full_source ? `<span class="bg-indigo-900/60 text-indigo-300 px-2 py-0.5 rounded text-[10px] font-semibold border border-indigo-700/50">⚡ ${Math.round(c.trimmed_duration_sec || c.duration_sec)}s Viral Trim · 10m Raw</span>` : `<span class="bg-zinc-800 text-zinc-300 px-2 py-0.5 rounded text-[10px]">${c.duration_sec}s</span>`}
+                    ${c.spoken_hook ? `<span class="text-[10px] text-pinkwire font-bold uppercase tracking-wider">🎙️ Spoken Hook</span>` : ''}
+                  </div>
+                  <h3 class="font-bold text-zinc-100 mt-1">${c.spoken_hook || c.suggested_hook}</h3>
                   <p class="text-xs text-zinc-400 mt-1">${c.moment_summary}</p>
                   <div class="mt-2 bg-zinc-900/80 rounded p-2 text-[11px] font-mono text-zinc-400 max-h-16 overflow-y-auto">
                     ${(c.peak_chat_sample || []).slice(0, 5).map(m => `<div>&gt; ${m}</div>`).join('')}
                   </div>
                 </div>
                 <div class="flex flex-wrap gap-2 pt-2 border-t border-zinc-800 text-xs">
-                  <button onclick="downloadClip('${c.clip_id}', this)"
-                    class="flex-1 bg-pinkwire hover:opacity-90 text-white font-semibold py-1.5 px-3 rounded">
-                    ${isDl ? '✓ Re-Download Bundle' : `Download MP4 (${c.file_size_mb} MB)`}
+                  <button onclick="downloadClip('${c.clip_id}', false, this)"
+                    class="flex-1 bg-pinkwire hover:opacity-90 text-white font-semibold py-1.5 px-3 rounded whitespace-nowrap">
+                    ${isDl ? '✓ Saved' : `⬇ Viral Short (${Math.round(c.trimmed_duration_sec || c.duration_sec)}s)`}
                   </button>
-                  <button onclick="renderChat('${c.clip_id}', false, this)"
-                    class="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 py-1.5 px-2.5 rounded">
-                    Chat WebM
-                  </button>
+                  ${c.has_full_source ? `
+                  <button onclick="downloadClip('${c.clip_id}', true, this)"
+                    class="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 py-1.5 px-2.5 rounded whitespace-nowrap" title="Download the full 10-minute raw source video">
+                    ⬇ 10m Raw (${c.full_file_size_mb || '?'} MB)
+                  </button>` : ''}
                   <button onclick="renderChat('${c.clip_id}', true, this)"
-                    class="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 py-1.5 px-2.5 rounded">
-                    Burn Chat
+                    class="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 py-1.5 px-2.5 rounded whitespace-nowrap">
+                    🔥 Burn Chat
                   </button>
                 </div>
               </div>
@@ -323,18 +328,19 @@
       }
     }
 
-    async function downloadClip(clipId, btn) {
+    async function downloadClip(clipId, downloadFull, btn) {
       btn.disabled = true;
+      const oldText = btn.textContent;
       btn.textContent = 'Downloading...';
       try {
         const res = await fetch(`/local/download/${clipId}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ vps_url: vpsUrl, api_secret: apiSecret }),
+          body: JSON.stringify({ vps_url: vpsUrl, api_secret: apiSecret, download_full: !!downloadFull }),
         });
         if (!res.ok) throw new Error('Download failed');
         downloadedIds.add(clipId);
-        btn.textContent = '✓ Saved to downloads/';
+        btn.textContent = downloadFull ? '✓ 10m Raw Saved' : '✓ Saved to downloads/';
       } catch (e) {
         btn.textContent = 'Error — Retry';
       } finally {
