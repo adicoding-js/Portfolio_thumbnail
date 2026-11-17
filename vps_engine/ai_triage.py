@@ -153,7 +153,11 @@ class AITriageEngine:
             ) as resp:
                 resp.raise_for_status()
                 data = await resp.json()
-                raw_content = data["choices"][0]["message"]["content"].strip()
+                choice = data.get("choices", [{}])[0]
+                message = choice.get("message", {})
+                raw_content = (message.get("content") or "").strip()
+                if not raw_content:
+                    raise ValueError(f"Empty content in AI proxy response: {data}")
                 if raw_content.startswith("```"):
                     raw_content = raw_content.split("```")[1]
                     if raw_content.startswith("json"):

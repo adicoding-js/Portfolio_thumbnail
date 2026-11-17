@@ -1,5 +1,7 @@
 import json
 import os
+import shutil
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict
@@ -8,6 +10,38 @@ from dotenv import load_dotenv
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT_DIR / ".env")
+
+# Ensure virtualenv bin, ~/.local/bin, /usr/local/bin are always in PATH for subprocesses
+py_bin_dir = str(Path(sys.executable).parent)
+extra_paths = [
+    py_bin_dir,
+    str(Path.home() / ".local" / "bin"),
+    "/usr/local/bin",
+    "/usr/bin",
+]
+path_env = os.environ.get("PATH", "")
+parts = path_env.split(os.pathsep) if path_env else []
+for ep in reversed(extra_paths):
+    if ep and ep not in parts:
+        parts.insert(0, ep)
+os.environ["PATH"] = os.pathsep.join(parts)
+
+
+def resolve_bin(name: str) -> str:
+    """Find binary path prioritizing current Python environment's bin folder, ~/.local/bin, then system PATH."""
+    py_dir = Path(sys.executable).parent
+    candidates = [
+        py_dir / name,
+        py_dir / f"{name}.exe",
+        Path.home() / ".local" / "bin" / name,
+        Path("/usr/local/bin") / name,
+        Path("/usr/bin") / name,
+    ]
+    for c in candidates:
+        if c.is_file() and os.access(c, os.X_OK):
+            return str(c)
+    found = shutil.which(name)
+    return found or name
 
 
 @dataclass

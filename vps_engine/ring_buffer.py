@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Dict, Optional
 
-from .config import settings
+from .config import resolve_bin, settings
 
 logger = logging.getLogger("pinkwire.ring_buffer")
 
@@ -48,11 +48,13 @@ class RollingRingBuffer:
         self.started_at = time.time()
 
         seg_pattern = str(self.dir / "seg_%03d.ts")
+        s_bin = resolve_bin("streamlink")
+        ff_bin = resolve_bin("ffmpeg")
         extra_flags = "--twitch-disable-ads " if self.platform == "twitch" else ""
         cmd = (
-            f"streamlink {extra_flags}--stdout --retry-streams 5 --retry-open 3 "
+            f"'{s_bin}' {extra_flags}--stdout --retry-streams 5 --retry-open 3 "
             f"'{self.stream_url}' 480p,720p,720p60,best | "
-            f"ffmpeg -hide_banner -loglevel error -i pipe:0 -c copy "
+            f"'{ff_bin}' -hide_banner -loglevel error -i pipe:0 -c copy "
             f"-f segment -segment_time 5 -segment_wrap 16 -reset_timestamps 1 '{seg_pattern}'"
         )
         self._proc = await asyncio.create_subprocess_shell(
@@ -104,7 +106,7 @@ class RollingRingBuffer:
                     f.write(f"file '{seg.resolve()}'\n")
 
             proc = await asyncio.create_subprocess_exec(
-                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                resolve_bin("ffmpeg"), "-y", "-hide_banner", "-loglevel", "error",
                 "-f", "concat", "-safe", "0", "-i", str(concat_file),
                 "-c", "copy", "-movflags", "+faststart", str(output_mp4),
                 stdout=asyncio.subprocess.DEVNULL,
@@ -225,7 +227,7 @@ class RingBufferManager:
 async def generate_contact_sheet(mp4_path: Path, out_jpg: Path) -> bool:
     """Generate a 3-frame JPEG contact sheet (<50KB) for 5G Data-Saver preview."""
     probe = await asyncio.create_subprocess_exec(
-        "ffprobe", "-v", "error", "-show_entries", "format=duration",
+        resolve_bin("ffprobe"), "-v", "error", "-show_entries", "format=duration",
         "-of", "default=noprint_wrappers=1:nokey=1", str(mp4_path),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL,
@@ -238,7 +240,7 @@ async def generate_contact_sheet(mp4_path: Path, out_jpg: Path) -> bool:
 
     fps_filter = f"fps=3/{duration:.2f},scale=320:-1,tile=3x1"
     proc = await asyncio.create_subprocess_exec(
-        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        resolve_bin("ffmpeg"), "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(mp4_path),
         "-vf", fps_filter,
         "-frames:v", "1",

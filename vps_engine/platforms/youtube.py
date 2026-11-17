@@ -10,7 +10,7 @@ from typing import Any, Callable, Dict, List, Optional
 import aiohttp
 import pytchat
 
-from ..config import settings
+from ..config import resolve_bin, settings
 from ..detector import ChatMessage
 
 logger = logging.getLogger("pinkwire.youtube")
@@ -124,7 +124,7 @@ class YouTubePlatform:
         url = f"https://www.youtube.com/watch?v={video_id}"
         section = f"*-{duration_sec}-inf"
         proc = await asyncio.create_subprocess_exec(
-            "yt-dlp",
+            resolve_bin("yt-dlp"),
             "-q", "--no-warnings",
             "--live-from-start",
             "--download-sections", section,

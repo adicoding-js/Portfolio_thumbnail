@@ -10,7 +10,7 @@ from typing import Any, Callable, Dict, List, Optional
 import aiohttp
 import websockets
 
-from ..config import settings
+from ..config import resolve_bin, settings
 from ..detector import ChatMessage
 
 logger = logging.getLogger("pinkwire.twitch")
@@ -122,7 +122,7 @@ class TwitchPlatform:
                         await asyncio.sleep(6)
                         clip_url = f"https://clips.twitch.tv/{clip_id}"
                         proc = await asyncio.create_subprocess_exec(
-                            "yt-dlp", "-q", "--no-warnings",
+                            resolve_bin("yt-dlp"), "-q", "--no-warnings",
                             "-f", "best[height<=1080]/best",
                             "-o", str(output_mp4), clip_url,
                             stdout=asyncio.subprocess.DEVNULL,
@@ -141,9 +141,11 @@ class TwitchPlatform:
                 logger.warning("Helix clip failed for %s (%s); falling back to HLS edge.", handle, exc)
 
         clip_len = min(60, max(20, duration_sec))
+        s_bin = resolve_bin("streamlink")
+        ff_bin = resolve_bin("ffmpeg")
         cmd = (
-            f"streamlink --twitch-disable-ads --stdout 'https://twitch.tv/{handle}' 480p,720p60,720p,best | "
-            f"ffmpeg -y -hide_banner -loglevel error -i pipe:0 -t {clip_len} "
+            f"'{s_bin}' --twitch-disable-ads --stdout 'https://twitch.tv/{handle}' 480p,720p60,720p,best | "
+            f"'{ff_bin}' -y -hide_banner -loglevel error -i pipe:0 -t {clip_len} "
             f"-c copy -movflags +faststart '{output_mp4}'"
         )
         proc = await asyncio.create_subprocess_shell(
